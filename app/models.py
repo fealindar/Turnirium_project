@@ -50,6 +50,8 @@ class Participant(Base):
     last_name: Mapped[str] = mapped_column(String(100))
     club: Mapped[str] = mapped_column(String(160), default="")
     city: Mapped[str] = mapped_column(String(160), default="")
+    fee_paid: Mapped[bool] = mapped_column(Boolean, default=False)
+    comment: Mapped[str] = mapped_column(Text, default="")
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     # Статусы: active — участвует, withdrawn — выбыл.
     status: Mapped[str] = mapped_column(String(24), default="active")

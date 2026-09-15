@@ -150,6 +150,10 @@ def _initialize_schema(bind) -> None:
         if "status" not in pcols:
             conn.execute(text("ALTER TABLE participants ADD COLUMN status VARCHAR(24) NOT NULL DEFAULT 'active'"))
             conn.execute(text("UPDATE participants SET status='withdrawn' WHERE active=0"))
+        if "fee_paid" not in pcols:
+            conn.execute(text("ALTER TABLE participants ADD COLUMN fee_paid BOOLEAN NOT NULL DEFAULT 0"))
+        if "comment" not in pcols:
+            conn.execute(text("ALTER TABLE participants ADD COLUMN comment TEXT NOT NULL DEFAULT ''"))
 
         tcols = {c["name"] for c in inspector.get_columns("tournaments")}
         if "status" not in tcols:

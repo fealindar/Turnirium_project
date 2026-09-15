@@ -26,6 +26,24 @@ async function api(path, options={}) {
   const text = await r.text();
   return text ? JSON.parse(text) : null;
 }
+
+function installOverflowTooltips() {
+  document.addEventListener('mouseover', event => {
+    let element = event.target instanceof Element ? event.target : null;
+    for (let depth = 0; element && depth < 4; depth += 1, element = element.parentElement) {
+      if (element.hasAttribute('title')) continue;
+      const style = getComputedStyle(element);
+      if (style.textOverflow !== 'ellipsis') continue;
+      if (element.scrollWidth <= element.clientWidth + 1) continue;
+      const fullText = (element.textContent || '').replace(/\s+/g, ' ').trim();
+      if (fullText) element.title = fullText;
+      break;
+    }
+  }, {passive:true});
+}
+
+installOverflowTooltips();
+
 function downloadUrl(url){
   const a=document.createElement('a');a.href=url;a.download='';a.style.display='none';document.body.appendChild(a);a.click();setTimeout(()=>a.remove(),1000);
 }
@@ -51,6 +69,14 @@ function fighterText(f) { return f ? `${f.name}${affiliation(f) ? ' · '+affilia
 function matchTitle(m) { return `#${m.match_no} · ${m.category_name} · ${fighterText(m.red)} — ${fighterText(m.blue)}`; }
 function statusText(s){ return ({draft:'черновик',staged:'состав редактируется',blocked:'ожидает участников',pending:'ожидает',ready:'готов',in_progress:'идёт',finished:'завершён',completed:'завершена',active:'активен',withdrawn:'выбыл'})[s]||s; }
 function reasonText(r){ return ({POINTS:'По счёту',DRAW:'Ничья',TECHNICAL_LOSS:'Техническое поражение',WARNING_FORFEIT:'Поражение по предупреждениям',DISQUALIFICATION:'Дисквалификация',WITHDRAWAL:'Участник выбыл',BYE:'Автопроход'})[r]||r||''; }
+function formatName(format){ return ({knockout:'Олимпийская',groups:'Группы + плей-офф',swiss:'Швейцарская',round_robin:'Все со всеми'})[format]||format||'—'; }
+function roundLabel(round,total){
+  const distance=total-round;
+  if(distance===0)return 'Финал';
+  if(distance===1)return 'Полуфинал';
+  const denominator=2**(distance+1);
+  return denominator<=64?`1/${denominator} финала`:`Раунд ${round}`;
+}
 
 
 async function openMatchCorrection(matchId,onDone=()=>{}){

@@ -8,7 +8,7 @@ def test_runtime_endpoint_lists_interfaces_and_clients():
         r = client.get('/api/system/runtime')
         assert r.status_code == 200
         data = r.json()
-        assert data['version'] == '1.1.0'
+        assert data['version'] == '1.1.2'
         assert 'interfaces' in data and isinstance(data['interfaces'], list)
         assert data['client_count'] == 0
 
@@ -77,3 +77,16 @@ def test_database_selector_rejects_unrelated_sqlite_file(tmp_path):
         r = client.post('/api/databases/select', json={'path': str(unrelated)})
         assert r.status_code == 400
         assert 'Turnirium' in r.json()['detail']
+
+
+def test_backup_endpoint_creates_consistent_sqlite_copy():
+    """Резервная копия не должна падать из-за отсутствующего datetime и должна создавать файл."""
+    from pathlib import Path
+
+    with TestClient(app) as client:
+        response = client.post('/api/backup')
+        assert response.status_code == 200, response.text
+        backup_path = Path(response.json()['path'])
+        assert backup_path.exists()
+        assert backup_path.stat().st_size > 0
+        backup_path.unlink(missing_ok=True)

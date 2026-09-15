@@ -1,4 +1,4 @@
-/* Версия v0.10: выбор рабочей базы данных */
+/* Выбор рабочей базы данных. */
 .service-grid {
   display:grid;
   grid-template-columns:minmax(0,1.15fr) minmax(360px,.85fr);

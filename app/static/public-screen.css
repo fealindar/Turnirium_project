@@ -96,7 +96,7 @@
     font-size:4vh
   }
   .board-score {
-    font-size:12vh
+    font-size:clamp(100px,16vh,210px)
   }
   .board-next {
     grid-template-columns:1fr

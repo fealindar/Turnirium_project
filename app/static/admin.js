@@ -37,6 +37,17 @@ async function initAdmin() {
     if (!adminState.tournamentId) return;
     if (e.type==='database_cleared'){ await loadAdminBase(); renderAdminTab('overview'); return; }
     if (e.type==='templates_changed'){ adminState.templates=await api('/api/category-templates'); if($('.admin-nav button.active')?.dataset.tab==='categories')renderCategories(); return; }
+    if (e.type==='participant_details_changed' && e.participant){
+      const index=adminState.participants.findIndex(item=>item.id===e.participant.id);
+      if(index>=0)adminState.participants[index]=e.participant;
+      const row=document.querySelector(`[data-participant-row="${e.participant.id}"]`);
+      row?.classList.toggle('participant-paid',Boolean(e.participant.fee_paid));
+      const paid=document.querySelector(`[data-participant-paid="${e.participant.id}"]`);
+      const comment=document.querySelector(`[data-participant-comment="${e.participant.id}"]`);
+      if(paid && document.activeElement!==paid)paid.checked=Boolean(e.participant.fee_paid);
+      if(comment && document.activeElement!==comment)comment.value=e.participant.comment||'';
+      return;
+    }
     if (['schedule_changed','areas_changed','match_changed','match_finished','match_corrected','area_changed','timer_changed','timer_finished','bracket_changed','participants_changed','categories_changed','category_changed','tournament_changed'].includes(e.type)) {
       // Всегда обновляем выбранную категорию: раньше после завершения боя
       // обновлялось только расписание, а сетка оставалась старой до F5.
@@ -94,9 +105,11 @@ async function loadSelectedCategory(){
   [adminState.categoryParticipants,adminState.matches]=await Promise.all([api(`/api/categories/${adminState.selectedCategoryId}/participants`),api(`/api/categories/${adminState.selectedCategoryId}/matches`)]);
 }
 function renderAdminTab(tab){
+  const content=$('#adminContent');
+  if(content) content.className=['schedule','bracket'].includes(tab)?'admin-content-wide':'';
   if(tab==='network'){renderNetwork();return;}
   if(tab==='service'){renderService();return;}
-  if(!adminState.tournamentId){$('#adminContent').innerHTML=`<section class="empty-state"><div class="empty-icon">🏆</div><h2>Создайте первый турнир</h2><p>Площадка №1 будет создана автоматически. После этого добавьте участников и категории.</p></section>`;return;}
+  if(!adminState.tournamentId){content.innerHTML=`<section class="empty-state"><div class="empty-icon">🏆</div><h2>Создайте первый турнир</h2><p>Площадка №1 будет создана автоматически. После этого добавьте участников и категории.</p></section>`;return;}
   if(tab==='overview') renderOverview();
   else if(tab==='participants') renderParticipants();
   else if(tab==='categories') renderCategories();
@@ -124,23 +137,182 @@ function renderOverview(){
     }).join('')||'<div class="card">Нет площадок.</div>'}</div>
     <div class="card operation-tip"><b>Упрощённый режим:</b> если площадка одна, все готовые поединки назначаются на неё автоматически, а первый готовый бой сразу выбирается как текущий.</div>`;
 }
-function renderParticipants(){
-  $('#adminContent').innerHTML=`<div class="grid grid2 admin-two"><div class="card form-card"><div class="card-title"><h2>Новый участник</h2><span>Карточка спортсмена</span></div><form id="participantForm" class="stack">
+function participantCategoriesHtml(categories) {
+  if (!categories.length) {
+    return '<div class="participant-category-empty">Участник пока не заявлен ни в одну категорию.</div>';
+  }
+  return `<div class="participant-category-list">${categories.map(category => `
+    <div class="participant-category-item">
+      <div>
+        <b>${esc(category.name)}</b>
+        <small>${esc(formatName(category.format))}${category.group_name ? ` · Группа ${esc(category.group_name)}` : ''}</small>
+      </div>
+      <div class="participant-category-state">
+        ${category.disqualified ? '<span class="pill warn">DSQ</span>' : ''}
+        <span class="pill ${category.status === 'completed' ? 'muted-pill' : ''}">${category.status === 'completed' ? 'Завершена' : 'Участвует'}</span>
+      </div>
+    </div>`).join('')}</div>`;
+}
+
+function participantExtraHtml(participant, categories) {
+  return `<div class="participant-extra-grid">
+    <section class="participant-extra-section">
+      <div class="participant-extra-title">Категории</div>
+      ${participantCategoriesHtml(categories)}
+    </section>
+    <section class="participant-extra-section participant-admin-note">
+      <div class="participant-extra-title">Организационные данные</div>
+      <label class="participant-paid-control">
+        <input type="checkbox" data-participant-paid="${participant.id}" ${participant.fee_paid ? 'checked' : ''}>
+        <span>Сдал взнос</span>
+      </label>
+      <label class="field participant-comment-field">
+        <span>Комментарий</span>
+        <textarea data-participant-comment="${participant.id}" maxlength="4000" placeholder="Произвольная заметка организатора">${esc(participant.comment || '')}</textarea>
+      </label>
+      <div class="participant-note-actions">
+        <span class="muted" data-participant-note-status="${participant.id}"></span>
+        <button type="button" class="small primary" data-save-participant-details="${participant.id}">Сохранить</button>
+      </div>
+    </section>
+  </div>`;
+}
+
+async function saveParticipantDetails(participantId) {
+  const paid = document.querySelector(`[data-participant-paid="${participantId}"]`);
+  const comment = document.querySelector(`[data-participant-comment="${participantId}"]`);
+  const status = document.querySelector(`[data-participant-note-status="${participantId}"]`);
+  if (!paid || !comment) return;
+  if (status) status.textContent = 'Сохранение…';
+  try {
+    const updated = await api(`/api/participants/${participantId}/details`, {
+      method:'PUT',
+      body:JSON.stringify({fee_paid:paid.checked, comment:comment.value}),
+    });
+    const index = adminState.participants.findIndex(item => item.id === participantId);
+    if (index >= 0) adminState.participants[index] = updated;
+    if (status) status.textContent = 'Сохранено';
+    const mainRow = document.querySelector(`[data-participant-row="${participantId}"]`);
+    mainRow?.classList.toggle('participant-paid', Boolean(updated.fee_paid));
+  } catch (error) {
+    if (status) status.textContent = '';
+    toast(error.message, true);
+  }
+}
+
+async function toggleParticipantCategories(button) {
+  const participantId = Number(button.dataset.participantCategories);
+  const participant = adminState.participants.find(item => item.id === participantId);
+  const row = document.querySelector(`[data-participant-category-row="${participantId}"]`);
+  if (!row || !participant) return;
+  const opening = row.hidden;
+  row.hidden = !opening;
+  button.classList.toggle('open', opening);
+  button.setAttribute('aria-expanded', opening ? 'true' : 'false');
+  if (!opening || row.dataset.loaded === '1') return;
+
+  const body = row.querySelector('[data-participant-category-body]');
+  body.innerHTML = '<div class="muted">Загрузка категорий…</div>';
+  try {
+    const categories = await api(`/api/participants/${participantId}/categories`);
+    body.innerHTML = participantExtraHtml(participant, categories);
+    row.dataset.loaded = '1';
+    body.querySelector(`[data-save-participant-details="${participantId}"]`).onclick = () => saveParticipantDetails(participantId);
+    body.querySelector(`[data-participant-paid="${participantId}"]`).onchange = () => saveParticipantDetails(participantId);
+  } catch (error) {
+    body.innerHTML = `<div class="error-text">${esc(error.message)}</div>`;
+  }
+}
+
+function participantTableHtml(rows) {
+  if (!rows.length) return '<tr><td colspan="5" class="muted">Ничего не найдено</td></tr>';
+  return rows.map(participant => {
+    const rowClasses = [
+      participant.status === 'withdrawn' ? 'row-muted' : '',
+      participant.fee_paid ? 'participant-paid' : '',
+    ].filter(Boolean).join(' ');
+    return `<tr class="${rowClasses}" data-participant-row="${participant.id}">
+      <td><div class="participant-name-cell"><button type="button" class="participant-chevron" data-participant-categories="${participant.id}" aria-expanded="false" title="Показать дополнительную информацию"><span aria-hidden="true"></span></button><b>${esc(participant.name)}</b></div></td>
+      <td>${esc(participant.club || '—')}</td>
+      <td>${esc(participant.city || '—')}</td>
+      <td><span class="pill ${participant.status === 'withdrawn' ? 'warn' : ''}">${esc(statusText(participant.status || 'active'))}</span></td>
+      <td class="actions"><button class="small" data-edit-p="${participant.id}">Ред.</button><button class="small ${participant.status === 'withdrawn' ? '' : 'warning-btn'}" data-status-p="${participant.id}" data-next-status="${participant.status === 'withdrawn' ? 'active' : 'withdrawn'}">${participant.status === 'withdrawn' ? 'Вернуть' : 'Выбыл'}</button><button class="small danger ghost" data-del-p="${participant.id}">Удалить</button></td>
+    </tr>
+    <tr class="participant-category-row" data-participant-category-row="${participant.id}" hidden><td colspan="5"><div class="participant-category-body" data-participant-category-body></div></td></tr>`;
+  }).join('');
+}
+
+function bindParticipantRows() {
+  $$('[data-participant-categories]').forEach(button => button.onclick = () => toggleParticipantCategories(button));
+  $$('[data-edit-p]').forEach(button => button.onclick = () => editParticipant(Number(button.dataset.editP)));
+  $$('[data-status-p]').forEach(button => button.onclick = async () => {
+    const next = button.dataset.nextStatus;
+    const text = next === 'withdrawn'
+      ? 'Отметить участника как «Выбыл»? Будущие уже сформированные бои с определенным соперником будут закрыты как выбытие.'
+      : 'Вернуть участника в активные? Автоматически завершенные из-за выбытия бои не будут отменены.';
+    if (!confirm(text)) return;
+    try {
+      await api(`/api/participants/${button.dataset.statusP}/status`, {method:'POST', body:JSON.stringify({status:next})});
+      await refreshAdminData();
+      renderParticipants();
+      toast(next === 'withdrawn' ? 'Участник выбыл' : 'Участник возвращен');
+    } catch (error) { toast(error.message, true); }
+  });
+  $$('[data-del-p]').forEach(button => button.onclick = async () => {
+    if (!confirm('Удалить участника?')) return;
+    try {
+      await api(`/api/participants/${button.dataset.delP}`, {method:'DELETE'});
+      await refreshAdminData();
+      renderParticipants();
+    } catch (error) { toast(error.message, true); }
+  });
+}
+
+function renderParticipants() {
+  $('#adminContent').innerHTML = `<div class="participant-workspace"><div class="card form-card participant-create-card"><div class="card-title"><h2>Новый участник</h2><span>Карточка спортсмена</span></div><form id="participantForm" class="stack">
     <div class="row"><div class="field grow"><label>Фамилия</label><input name="last_name" placeholder="Например: Иванова" required></div><div class="field grow"><label>Имя</label><input name="first_name" placeholder="Например: Анна"></div></div>
     <div class="row"><div class="field grow"><label>Клуб / школа</label><input name="club" placeholder="Например: Боевые Хомяки"></div><div class="field grow"><label>Город</label><input name="city" placeholder="Например: Москва"></div></div><button class="primary">Добавить участника</button></form></div>
-    <div class="card"><div class="card-title row"><div class="grow"><h2>Участники · ${adminState.participants.length}</h2><span>Статус «Выбыл» исключает спортсмена из новых жеребьевок; уже назначенные будущие бои закрываются проходом соперника.</span></div><input id="participantSearch" class="search" placeholder="Поиск…"></div><div class="participant-tools"><button id="exportParticipantsCsv">Экспорт CSV</button><button id="exportParticipantsJson">Экспорт JSON</button><button id="importParticipantsBtn" class="primary">Импорт списка</button><input id="importParticipantsFile" type="file" accept=".csv,.json,text/csv,application/json" hidden><span class="muted">CSV: Фамилия;Имя;Клуб;Город;Статус</span></div><div id="participantTable"></div></div></div>`;
-  const draw=(q='')=>{q=q.trim().toLowerCase();const rows=adminState.participants.filter(p=>!q||[p.name,p.club,p.city,statusText(p.status)].some(v=>(v||'').toLowerCase().includes(q)));$('#participantTable').innerHTML=`<div class="table-wrap"><table class="table"><thead><tr><th>Участник</th><th>Клуб</th><th>Город</th><th>Статус</th><th></th></tr></thead><tbody>${rows.map(p=>`<tr class="${p.status==='withdrawn'?'row-muted':''}"><td><b>${esc(p.name)}</b></td><td>${esc(p.club||'—')}</td><td>${esc(p.city||'—')}</td><td><span class="pill ${p.status==='withdrawn'?'warn':''}">${esc(statusText(p.status||'active'))}</span></td><td class="actions"><button class="small" data-edit-p="${p.id}">Ред.</button><button class="small ${p.status==='withdrawn'?'':'warning-btn'}" data-status-p="${p.id}" data-next-status="${p.status==='withdrawn'?'active':'withdrawn'}">${p.status==='withdrawn'?'Вернуть':'Выбыл'}</button><button class="small danger ghost" data-del-p="${p.id}">Удалить</button></td></tr>`).join('')||'<tr><td colspan="5" class="muted">Ничего не найдено</td></tr>'}</tbody></table></div>`; bindParticipantRows();};
-  const bindParticipantRows=()=>{
-    $$('[data-edit-p]').forEach(b=>b.onclick=()=>editParticipant(Number(b.dataset.editP)));
-    $$('[data-status-p]').forEach(b=>b.onclick=async()=>{const next=b.dataset.nextStatus;const text=next==='withdrawn'?'Отметить участника как «Выбыл»? Будущие уже сформированные бои с определенным соперником будут закрыты как выбытие.':'Вернуть участника в активные? Автоматически завершенные из-за выбытия бои не будут отменены.';if(!confirm(text))return;try{await api(`/api/participants/${b.dataset.statusP}/status`,{method:'POST',body:JSON.stringify({status:next})});await refreshAdminData();renderParticipants();toast(next==='withdrawn'?'Участник выбыл':'Участник возвращен')}catch(e){toast(e.message,true)}});
-    $$('[data-del-p]').forEach(b=>b.onclick=async()=>{if(!confirm('Удалить участника?'))return;try{await api(`/api/participants/${b.dataset.delP}`,{method:'DELETE'});await refreshAdminData();renderParticipants()}catch(e){toast(e.message,true)}});
+    <div class="card"><div class="card-title row"><div class="grow"><h2>Участники · ${adminState.participants.length}</h2><span>Шеврон открывает категории, отметку взноса и комментарий организатора.</span></div><input id="participantSearch" class="search" placeholder="Поиск…"></div><div class="participant-tools"><button id="exportParticipantsCsv">Экспорт CSV</button><button id="exportParticipantsJson">Экспорт JSON</button><button id="importParticipantsBtn" class="primary">Импорт списка</button><input id="importParticipantsFile" type="file" accept=".csv,.json,text/csv,application/json" hidden><span class="muted">CSV: Фамилия;Имя;Клуб;Город;Статус;Сдал взнос;Комментарий</span></div><div id="participantTable"></div></div></div>`;
+
+  const draw = (query='') => {
+    const normalized = query.trim().toLowerCase();
+    const rows = adminState.participants.filter(participant => !normalized || [
+      participant.name,
+      participant.club,
+      participant.city,
+      participant.comment,
+      statusText(participant.status),
+    ].some(value => (value || '').toLowerCase().includes(normalized)));
+    $('#participantTable').innerHTML = `<div class="table-wrap"><table class="table participant-table"><thead><tr><th>Участник</th><th>Клуб</th><th>Город</th><th>Статус</th><th></th></tr></thead><tbody>${participantTableHtml(rows)}</tbody></table></div>`;
+    bindParticipantRows();
   };
-  draw(); $('#participantSearch').oninput=e=>draw(e.target.value);
-  $('#exportParticipantsCsv').onclick=()=>downloadUrl(`/api/tournaments/${adminState.tournamentId}/participants/export.csv`);
-  $('#exportParticipantsJson').onclick=()=>downloadUrl(`/api/tournaments/${adminState.tournamentId}/participants/export.json`);
-  $('#importParticipantsBtn').onclick=()=>$('#importParticipantsFile').click();
-  $('#importParticipantsFile').onchange=async e=>{const file=e.target.files?.[0];if(!file)return;try{const content=await file.text();const r=await api(`/api/tournaments/${adminState.tournamentId}/participants/import`,{method:'POST',body:JSON.stringify({filename:file.name,content})});await refreshAdminData();renderParticipants();toast(`Импорт: добавлено ${r.created}, обновлено ${r.updated}, пропущено ${r.skipped}`)}catch(err){toast(err.message,true)}};
-  $('#participantForm').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target);try{await api(`/api/tournaments/${adminState.tournamentId}/participants`,{method:'POST',body:JSON.stringify(Object.fromEntries(fd))});e.target.reset();await refreshAdminData();renderParticipants()}catch(err){toast(err.message,true)}};
+
+  draw();
+  $('#participantSearch').oninput = event => draw(event.target.value);
+  $('#exportParticipantsCsv').onclick = () => downloadUrl(`/api/tournaments/${adminState.tournamentId}/participants/export.csv`);
+  $('#exportParticipantsJson').onclick = () => downloadUrl(`/api/tournaments/${adminState.tournamentId}/participants/export.json`);
+  $('#importParticipantsBtn').onclick = () => $('#importParticipantsFile').click();
+  $('#importParticipantsFile').onchange = async event => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const content = await file.text();
+      const result = await api(`/api/tournaments/${adminState.tournamentId}/participants/import`, {method:'POST', body:JSON.stringify({filename:file.name, content})});
+      await refreshAdminData();
+      renderParticipants();
+      toast(`Импорт: добавлено ${result.created}, обновлено ${result.updated}, пропущено ${result.skipped}`);
+    } catch (error) { toast(error.message, true); }
+  };
+  $('#participantForm').onsubmit = async event => {
+    event.preventDefault();
+    const form = new FormData(event.target);
+    try {
+      await api(`/api/tournaments/${adminState.tournamentId}/participants`, {method:'POST', body:JSON.stringify(Object.fromEntries(form))});
+      event.target.reset();
+      await refreshAdminData();
+      renderParticipants();
+    } catch (error) { toast(error.message, true); }
+  };
 }
 
 async function editParticipant(id){
@@ -150,36 +322,6 @@ async function editParticipant(id){
   const club=prompt('Клуб / школа:',p.club||''); if(club===null)return;
   const city=prompt('Город:',p.city||''); if(city===null)return;
   try{await api(`/api/participants/${id}`,{method:'PUT',body:JSON.stringify({last_name:last,first_name:first,club,city})});await refreshAdminData();renderParticipants();toast('Карточка участника обновлена')}catch(e){toast(e.message,true)}
-}
-function renderSchedule(){
-  const s=adminState.schedule||{areas:[],unassigned:[],settings:{avoid_consecutive_matches:true,preferred_match_gap:1}}; const auto=adminState.areas.length===1;
-  const cfg=s.settings||{avoid_consecutive_matches:true,preferred_match_gap:1};
-  const repeatWarnings=(s.areas||[]).reduce((n,col)=>n+col.matches.filter(m=>m.repeat_warning).length,0);
-  $('#adminContent').innerHTML=`<div class="section-head"><div><h2>Расписание площадок</h2><p>Перетаскивайте готовые бои между площадками и меняйте их порядок.</p></div><div class="row">${auto?'<span class="pill live-pill">Автоназначение включено</span>':''}<button id="addArea">+ Добавить площадку</button></div></div>
-  <div class="card schedule-settings"><div><b>Порядок боёв</b><small>Генератор старается не ставить одного спортсмена на несколько боёв подряд. Ограничение мягкое: при отсутствии альтернатив очередь не блокируется.</small></div><label class="check-row"><input id="avoidConsecutive" type="checkbox" ${cfg.avoid_consecutive_matches?'checked':''}> Разносить повторные выходы</label><label class="field compact-field"><span>Других боёв между выходами</span><input id="preferredGap" type="number" min="1" max="10" value="${cfg.preferred_match_gap||1}" ${cfg.avoid_consecutive_matches?'':'disabled'}></label><button id="saveScheduleSettings">Сохранить</button><button id="optimizeSchedule" ${cfg.avoid_consecutive_matches?'':'disabled'}>Оптимизировать текущую очередь</button>${repeatWarnings?`<span class="schedule-warning">⚠ Неизбежных близких выходов: ${repeatWarnings}</span>`:'<span class="muted">Повторные выходы в текущей очереди разведены.</span>'}</div>
-  <div class="schedule"><div class="schedule-col unassigned" data-area=""><div class="schedule-head"><h3>Не назначены</h3><span>${s.unassigned.length}</span></div>${s.unassigned.map(scheduleChip).join('')||'<div class="schedule-empty">Нет готовых боёв</div>'}</div>${s.areas.map(col=>`<div class="schedule-col" data-area="${col.area.id}"><div class="schedule-head"><h3>${esc(col.area.name)}</h3><span>${col.matches.length}</span></div>${col.matches.map(m=>scheduleChip(m,col.area.current_match_id)).join('')||'<div class="schedule-empty">Очередь пуста</div>'}</div>`).join('')}</div>`;
-  $('#avoidConsecutive').onchange=e=>{$('#preferredGap').disabled=!e.target.checked;$('#optimizeSchedule').disabled=!e.target.checked};
-  $('#saveScheduleSettings').onclick=async()=>{try{await api(`/api/tournaments/${adminState.tournamentId}/schedule-settings`,{method:'PUT',body:JSON.stringify({avoid_consecutive_matches:$('#avoidConsecutive').checked,preferred_match_gap:Number($('#preferredGap').value)||1})});await refreshAdminData(true);renderSchedule();toast('Настройки порядка боёв сохранены')}catch(e){toast(e.message,true)}};
-  $('#optimizeSchedule').onclick=async()=>{try{const r=await api(`/api/tournaments/${adminState.tournamentId}/schedule-optimize`,{method:'POST'});await refreshAdminData(true);renderSchedule();toast(r.unavoidable_conflicts?`Очередь оптимизирована. Близких повторных выходов, которых нельзя избежать: ${r.unavoidable_conflicts}`:'Очередь оптимизирована: повторные выходы разведены')}catch(e){toast(e.message,true)}};
-  $('#addArea').onclick=async()=>{const name=prompt('Название площадки:',`Площадка ${adminState.areas.length+1}`);if(!name)return;try{await api(`/api/tournaments/${adminState.tournamentId}/areas`,{method:'POST',body:JSON.stringify({name})});await refreshAdminData(true);renderSchedule()}catch(e){toast(e.message,true)}};
-  bindScheduleDnD();
-  $$('[data-select-match]').forEach(b=>b.onclick=async()=>{try{await api(`/api/areas/${b.dataset.area}/select/${b.dataset.selectMatch}`,{method:'POST'});await refreshAdminData(true);renderSchedule()}catch(e){toast(e.message,true)}});
-}
-function scheduleChip(m,currentId){return `<div class="match-chip drag ${m.id===currentId?'current':''} ${m.repeat_warning?'repeat-risk':''}" draggable="true" data-match="${m.id}" data-match-area="${m.area_id||''}"><div class="match-chip-title"><b>#${m.match_no} · ${esc(m.category_name)}</b><span class="pill">${esc(statusText(m.status))}</span></div><div class="match-pair"><span class="red-dot"></span>${esc(fighterText(m.red))}</div><div class="match-pair"><span class="blue-dot"></span>${esc(fighterText(m.blue))}</div>${m.repeat_warning?'<small class="repeat-note">⚠ Повторный выход близко к предыдущему</small>':''}${m.area_id?`<button class="small" data-select-match="${m.id}" data-area="${m.area_id}">${m.id===currentId?'На табло':'Показать на табло'}</button>`:''}</div>`;}
-function bindScheduleDnD(){
-  let draggedId=null, sourceArea='';
-  $$('[data-match]').forEach(el=>{el.ondragstart=e=>{draggedId=Number(el.dataset.match);sourceArea=el.dataset.matchArea||'';e.dataTransfer.setData('text/plain',String(draggedId));};el.ondragover=e=>e.preventDefault();el.ondrop=async e=>{e.preventDefault();e.stopPropagation();const targetArea=el.closest('[data-area]').dataset.area;await handleScheduleDrop(draggedId,sourceArea,targetArea,el);};});
-  $$('[data-area]').forEach(col=>{col.ondragover=e=>{e.preventDefault();col.classList.add('drop-target')};col.ondragleave=()=>col.classList.remove('drop-target');col.ondrop=async e=>{col.classList.remove('drop-target');if(e.target.closest('[data-match]'))return;e.preventDefault();await handleScheduleDrop(draggedId,sourceArea,col.dataset.area,null);};});
-}
-async function handleScheduleDrop(matchId,sourceArea,targetArea,beforeEl){
-  if(!matchId)return;
-  try{
-    if(!targetArea){await api('/api/schedule/assign',{method:'POST',body:JSON.stringify({match_id:matchId,area_id:null})});}
-    else if(String(sourceArea)!==String(targetArea)){await api('/api/schedule/assign',{method:'POST',body:JSON.stringify({match_id:matchId,area_id:Number(targetArea)})});}
-    await refreshAdminData(true);
-    if(targetArea){const col=adminState.schedule.areas.find(x=>String(x.area.id)===String(targetArea));let ids=(col?.matches||[]).map(m=>m.id).filter(id=>id!==matchId);if(beforeEl){const before=Number(beforeEl.dataset.match);const idx=ids.indexOf(before);ids.splice(idx<0?ids.length:idx,0,matchId);}else ids.push(matchId);await api(`/api/areas/${targetArea}/queue`,{method:'PUT',body:JSON.stringify({match_ids:ids})});await refreshAdminData(true);}
-    renderSchedule();
-  }catch(e){toast(e.message,true);await refreshAdminData(true);renderSchedule()}
 }
 async function renderNetwork(){
   const root=$('#adminContent');

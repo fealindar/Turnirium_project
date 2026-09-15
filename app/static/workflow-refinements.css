@@ -1,4 +1,4 @@
-/* Версия v0.4: блокировка этапов, импорт, брендинг и доработка сеток */
+/* Блокировка этапов, импорт, брендинг и доработка сеток. */
 .app-brand-footer {
   position:fixed;
   right:12px;
@@ -235,7 +235,7 @@
     font-size:9px
   }
 }
-/* Версия v0.5: правила категорий и швейцарская раскладка */
+/* Правила категорий и швейцарская раскладка. */
 .category-format-settings[hidden] {
   display:none!important
 }
@@ -304,7 +304,7 @@
     grid-template-columns:1fr
   }
 }
-/* Версия v0.5: безопасная корректировка завершённых боёв */
+/* Безопасная корректировка завершённых боёв. */
 .correction-overlay {
   position:fixed;
   inset:0;
@@ -426,7 +426,7 @@
     padding:13px
   }
 }
-/* Версия v0.6: интервалы расписания */
+/* Интервалы расписания. */
 .schedule-settings {
   display:grid;
   grid-template-columns:minmax(280px,1.4fr) auto minmax(180px,.55fr) auto auto;

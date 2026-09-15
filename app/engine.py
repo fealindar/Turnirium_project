@@ -8,7 +8,10 @@ from .services.common import (
     add_category_participant, audit, category_dict, clear_category_matches,
     effective_remaining_ms, json_load, match_dict, now_utc,
 )
-from .services.scheduling import auto_assign_ready_matches, optimize_area_queue, queue_repeat_warnings
+from .services.scheduling import (
+    assign_ready_category_unit, auto_assign_ready_matches, cross_area_repeat_warnings,
+    optimize_area_queue, queue_repeat_warnings,
+)
 from .services.brackets import generate_knockout
 from .services.groups import generate_groups, generate_round_robin, rebuild_groups_from_assignments, start_group_stage
 from .services.standings import elimination_standings, standings
@@ -21,10 +24,10 @@ from .services.matches import (
 from .services.maintenance import backup_database, clear_tournament_data
 
 __all__ = [
-    "add_category_participant", "add_warning", "apply_score", "audit",
+    "add_category_participant", "add_warning", "apply_score", "assign_ready_category_unit", "audit",
     "auto_assign_ready_matches", "backup_database", "category_dict",
     "clear_category_matches", "clear_tournament_data", "correct_finished_match",
-    "effective_remaining_ms", "elimination_standings", "finish_match",
+    "cross_area_repeat_warnings", "effective_remaining_ms", "elimination_standings", "finish_match",
     "generate_group_playoff", "generate_groups", "generate_knockout",
     "generate_round_robin", "generate_swiss_round", "json_load", "match_dict",
     "now_utc", "optimize_area_queue", "queue_repeat_warnings",

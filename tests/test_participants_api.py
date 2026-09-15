@@ -152,3 +152,68 @@ def test_participant_import_rejects_fields_longer_than_storage_limits() -> None:
 
     assert response.status_code == 400
     assert "Строка 2" in response.json()["detail"]
+
+
+def test_participant_organizational_details_are_persisted() -> None:
+    """Оплата и комментарий хранятся отдельно от спортивного статуса участника."""
+
+    reset_db()
+    with SessionLocal() as db:
+        tournament = Tournament(name="Взносы")
+        db.add(tournament)
+        db.flush()
+        participant = Participant(tournament_id=tournament.id, last_name="Хомяк")
+        db.add(participant)
+        db.commit()
+        participant_id = participant.id
+        tournament_id = tournament.id
+
+    with TestClient(app) as client:
+        response = client.put(
+            f"/api/participants/{participant_id}/details",
+            json={"fee_paid": True, "comment": "Оплата наличными у организатора"},
+        )
+        listed = client.get(f"/api/tournaments/{tournament_id}/participants")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["fee_paid"] is True
+    assert response.json()["comment"] == "Оплата наличными у организатора"
+    row = listed.json()[0]
+    assert row["fee_paid"] is True
+    assert row["comment"] == "Оплата наличными у организатора"
+
+
+def test_legacy_participant_import_does_not_clear_payment_and_comment() -> None:
+    """Старый CSV без новых колонок не должен стирать организационные данные."""
+
+    reset_db()
+    with SessionLocal() as db:
+        tournament = Tournament(name="Совместимость импорта")
+        db.add(tournament)
+        db.flush()
+        participant = Participant(
+            tournament_id=tournament.id,
+            last_name="Иванов",
+            first_name="Иван",
+            club="Боевые Хомяки",
+            fee_paid=True,
+            comment="Сохраняемая заметка",
+        )
+        db.add(participant)
+        db.commit()
+        tournament_id = tournament.id
+        participant_id = participant.id
+
+    content = "Фамилия;Имя;Клуб;Город;Статус\nИванов;Иван;Боевые Хомяки;;active\n"
+    with TestClient(app) as client:
+        response = client.post(
+            f"/api/tournaments/{tournament_id}/participants/import",
+            json={"filename": "old.csv", "content": content},
+        )
+
+    assert response.status_code == 200, response.text
+    with SessionLocal() as db:
+        participant = db.get(Participant, participant_id)
+        assert participant is not None
+        assert participant.fee_paid is True
+        assert participant.comment == "Сохраняемая заметка"

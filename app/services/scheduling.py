@@ -136,6 +136,87 @@ def auto_assign_ready_matches(db: Session, tournament_id: int) -> None:
         if first:
             area.current_match_id = first.id
 
+def cross_area_repeat_warnings(
+    queues: dict[int, list[Match]],
+    distance: int = 1,
+) -> dict[int, set[int]]:
+    """Находит близкие выходы одного бойца на разных площадках.
+
+    Позиции сравниваются внутри активных очередей площадок. ``distance=1``
+    означает конфликт на той же позиции либо на соседней позиции очереди.
+    Возвращается двусторонняя карта ``бой -> конфликтующие бои``.
+    """
+    distance = max(0, min(int(distance), 10))
+    area_ids = sorted(queues)
+    conflicts: dict[int, set[int]] = {}
+    for left_index, left_area_id in enumerate(area_ids):
+        left_queue = queues[left_area_id]
+        for right_area_id in area_ids[left_index + 1:]:
+            right_queue = queues[right_area_id]
+            for left_pos, left_match in enumerate(left_queue):
+                left_people = _match_participant_ids(left_match)
+                if not left_people:
+                    continue
+                start = max(0, left_pos - distance)
+                stop = min(len(right_queue), left_pos + distance + 1)
+                for right_match in right_queue[start:stop]:
+                    if left_people & _match_participant_ids(right_match):
+                        conflicts.setdefault(left_match.id, set()).add(right_match.id)
+                        conflicts.setdefault(right_match.id, set()).add(left_match.id)
+    return conflicts
+
+def assign_ready_category_unit(
+    db: Session,
+    tournament_id: int,
+    category_id: int,
+    area_id: int,
+    group_name: str = "",
+) -> int:
+    """Назначает на площадку все готовые бои категории или одной группы.
+
+    Будущие ``pending``-бои плей-офф не переносятся: их участники ещё не
+    определены. Уже назначенные, начатые и завершённые поединки также остаются
+    на своих местах. Новые бои добавляются в конец очереди и затем, если это
+    разрешено настройками турнира, очередь мягко оптимизируется по отдыху.
+    """
+    area = db.get(Area, area_id)
+    category = db.get(Category, category_id)
+    if not area or area.tournament_id != tournament_id:
+        raise ValueError("Площадка не относится к выбранному турниру")
+    if not area.enabled:
+        raise ValueError("Нельзя назначить бои на отключенную площадку")
+    if not category or category.tournament_id != tournament_id:
+        raise ValueError("Категория не относится к выбранному турниру")
+
+    filters = [
+        Match.category_id == category_id,
+        Match.area_id.is_(None),
+        Match.status == "ready",
+    ]
+    if group_name:
+        filters.append(Match.stage == "group")
+        filters.append(Match.group_name == group_name)
+
+    matches = db.scalars(
+        select(Match).where(*filters).order_by(Match.group_name, Match.match_no, Match.id)
+    ).all()
+    if not matches:
+        return 0
+
+    max_order = db.scalar(
+        select(func.max(Match.queue_order)).where(Match.area_id == area_id)
+    ) or 0
+    for match in matches:
+        max_order += 1
+        match.area_id = area_id
+        match.queue_order = max_order
+    db.flush()
+
+    tournament = db.get(Tournament, tournament_id)
+    if tournament and tournament.avoid_consecutive_matches:
+        optimize_area_queue(db, area)
+    return len(matches)
+
 def queue_repeat_warnings(matches: list[Match], gap: int) -> set[int]:
     """Возвращает ID боёв, расположенных ближе желаемого к предыдущему выходу участника."""
     gap = max(1, min(int(gap or 1), 10))

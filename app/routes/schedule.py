@@ -8,15 +8,17 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..engine import (
+    assign_ready_category_unit,
     audit,
     auto_assign_ready_matches,
+    cross_area_repeat_warnings,
     match_dict,
     optimize_area_queue,
     queue_repeat_warnings,
 )
-from ..models import Area, Category, Match, Tournament
+from ..models import Area, Category, CategoryParticipant, Match, Tournament
 from .common import _broadcast, _get_or_404
-from .schemas import AssignIn, ReorderIn, ScheduleSettingsIn
+from .schemas import AssignIn, ReorderIn, ScheduleSettingsIn, ScheduleUnitAssignIn
 
 router = APIRouter()
 
@@ -45,63 +47,172 @@ def _clear_current_area_reference(db: Session, match_id: int) -> None:
         area.current_match_id = None
 
 
+def _schedule_category_units(db: Session, tournament_id: int) -> list[dict]:
+    """Готовит категории и группы для панели быстрого назначения."""
+
+    categories = db.scalars(
+        select(Category).where(
+            Category.tournament_id == tournament_id,
+            Category.status != "completed",
+        ).order_by(Category.id)
+    ).all()
+    result: list[dict] = []
+    for category in categories:
+        participants = db.scalars(
+            select(CategoryParticipant).where(
+                CategoryParticipant.category_id == category.id,
+                CategoryParticipant.disqualified.is_(False),
+            ).order_by(CategoryParticipant.seed_order, CategoryParticipant.id)
+        ).all()
+        active = [
+            cp for cp in participants
+            if cp.participant.active and cp.participant.status != "withdrawn"
+        ]
+        if not active:
+            continue
+        matches = db.scalars(
+            select(Match).where(
+                Match.category_id == category.id,
+                Match.status != "finished",
+            ).order_by(Match.match_no, Match.id)
+        ).all()
+        groups: list[dict] = []
+        group_names = sorted({cp.group_name for cp in active if cp.group_name})
+        for group_name in group_names:
+            group_people = [cp for cp in active if cp.group_name == group_name]
+            group_matches = [m for m in matches if m.stage == "group" and m.group_name == group_name]
+            groups.append({
+                "name": group_name,
+                "participant_count": len(group_people),
+                "participants": [cp.participant.display_name for cp in group_people],
+                "ready_unassigned": sum(
+                    m.area_id is None and m.status == "ready" for m in group_matches
+                ),
+                "assigned_open": sum(m.area_id is not None for m in group_matches),
+            })
+        result.append({
+            "category_id": category.id,
+            "name": category.name,
+            "format": category.format,
+            "participant_count": len(active),
+            "participants": [cp.participant.display_name for cp in active],
+            "ready_unassigned": sum(
+                m.area_id is None and m.status == "ready" for m in matches
+            ),
+            "assigned_open": sum(m.area_id is not None for m in matches),
+            "groups": groups,
+        })
+    return result
+
+
+def _cross_warning_details(
+    conflicts: dict[int, set[int]],
+    matches: dict[int, Match],
+    areas: dict[int, Area],
+    positions: dict[int, int],
+) -> dict[int, list[dict]]:
+    """Преобразует межплощадочные конфликты в данные для интерфейса."""
+
+    details: dict[int, list[dict]] = {}
+    for match_id, other_ids in conflicts.items():
+        current = matches.get(match_id)
+        if not current:
+            continue
+        current_people = {
+            cp.participant_id: cp.participant.display_name
+            for cp in (current.red_cp, current.blue_cp) if cp
+        }
+        rows: list[dict] = []
+        for other_id in sorted(other_ids):
+            other = matches.get(other_id)
+            if not other:
+                continue
+            other_people = {
+                cp.participant_id: cp.participant.display_name
+                for cp in (other.red_cp, other.blue_cp) if cp
+            }
+            shared = [current_people[pid] for pid in current_people.keys() & other_people.keys()]
+            area = areas.get(other.area_id or 0)
+            rows.append({
+                "match_id": other.id,
+                "area_id": other.area_id,
+                "area_name": area.name if area else "Площадка",
+                "queue_order": other.queue_order,
+                "queue_position": positions.get(other.id, 0),
+                "participants": shared,
+                "category_name": other.category.name,
+            })
+        if rows:
+            details[match_id] = rows
+    return details
+
+
 @router.get("/tournaments/{tournament_id}/schedule")
 def schedule(tournament_id: int, db: Session = Depends(get_db)):
-    """Возвращает очереди площадок и автоматически назначает новые готовые бои."""
+    """Возвращает очереди, быстрые назначения и предупреждения расписания."""
 
     tournament = _get_or_404(db, Tournament, tournament_id, "Турнир")
-
-    # Старые турниры также получают режим одной площадки без ручной настройки
-    # сразу после открытия организатором расписания или панели управления.
     auto_assign_ready_matches(db, tournament_id)
     db.commit()
 
     areas = db.scalars(
         select(Area).where(Area.tournament_id == tournament_id).order_by(Area.id)
     ).all()
+    area_lookup = {area.id: area for area in areas}
+    queues = {area.id: _active_area_matches(db, tournament_id, area.id) for area in areas}
+    all_matches = {match.id: match for queue in queues.values() for match in queue}
+    queue_positions = {
+        match.id: position
+        for queue in queues.values()
+        for position, match in enumerate(queue, 1)
+    }
+    enabled_queues = {area.id: queues[area.id] for area in areas if area.enabled}
+    cross_conflicts = cross_area_repeat_warnings(enabled_queues, distance=1)
+    cross_details = _cross_warning_details(
+        cross_conflicts, all_matches, area_lookup, queue_positions
+    )
 
     area_rows: list[dict] = []
     for area in areas:
-        matches = _active_area_matches(db, tournament_id, area.id)
+        matches = queues[area.id]
         warned = (
             queue_repeat_warnings(matches, tournament.preferred_match_gap)
-            if tournament.avoid_consecutive_matches
-            else set()
+            if tournament.avoid_consecutive_matches else set()
         )
         payload = []
-        for match in matches:
+        for position, match in enumerate(matches, 1):
             item = match_dict(match)
+            item["queue_position"] = position
             item["repeat_warning"] = match.id in warned
+            item["cross_area_warning"] = match.id in cross_details
+            item["cross_area_conflicts"] = cross_details.get(match.id, [])
             payload.append(item)
-        area_rows.append(
-            {
-                "area": {
-                    "id": area.id,
-                    "name": area.name,
-                    "current_match_id": area.current_match_id,
-                },
-                "matches": payload,
-            }
-        )
+        area_rows.append({
+            "area": {
+                "id": area.id,
+                "name": area.name,
+                "enabled": area.enabled,
+                "current_match_id": area.current_match_id,
+            },
+            "matches": payload,
+        })
 
     unassigned = db.scalars(
-        select(Match)
-        .join(Category)
-        .where(
+        select(Match).join(Category).where(
             Category.tournament_id == tournament_id,
             Category.status != "completed",
             Match.area_id.is_(None),
             Match.status == "ready",
-        )
-        .order_by(Match.category_id, Match.match_no)
+        ).order_by(Match.category_id, Match.group_name, Match.match_no)
     ).all()
-
     return {
         "areas": area_rows,
         "unassigned": [match_dict(match) for match in unassigned],
+        "category_units": _schedule_category_units(db, tournament_id),
         "settings": {
             "avoid_consecutive_matches": bool(tournament.avoid_consecutive_matches),
             "preferred_match_gap": int(tournament.preferred_match_gap or 1),
+            "cross_area_distance": 1,
         },
     }
 
@@ -178,6 +289,96 @@ async def optimize_schedule(
     return {"ok": True, "unavoidable_conflicts": warnings}
 
 
+@router.post("/tournaments/{tournament_id}/schedule-reset")
+async def reset_schedule_assignments(
+    tournament_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Снимает распределение всех незавершённых боёв по площадкам."""
+
+    tournament = _get_or_404(db, Tournament, tournament_id, "Турнир")
+    active_matches = db.scalar(
+        select(func.count(Match.id))
+        .join(Category)
+        .where(
+            Category.tournament_id == tournament.id,
+            Match.status == "in_progress",
+        )
+    ) or 0
+    if active_matches:
+        raise HTTPException(
+            409,
+            "Нельзя сбросить распределение, пока идёт хотя бы один бой.",
+        )
+
+    matches = db.scalars(
+        select(Match)
+        .join(Category)
+        .where(
+            Category.tournament_id == tournament.id,
+            Match.status != "finished",
+            Match.area_id.is_not(None),
+        )
+    ).all()
+    for match in matches:
+        match.area_id = None
+        match.queue_order = 0
+
+    areas = db.scalars(
+        select(Area).where(Area.tournament_id == tournament.id)
+    ).all()
+    for area in areas:
+        area.current_match_id = None
+
+    audit(
+        db,
+        tournament.id,
+        "SCHEDULE_RESET",
+        "tournament",
+        tournament.id,
+        payload={"unassigned_matches": len(matches)},
+    )
+    db.commit()
+    await _broadcast(
+        request,
+        {"type": "schedule_changed", "tournament_id": tournament.id},
+    )
+    await _broadcast(
+        request,
+        {"type": "areas_changed", "tournament_id": tournament.id},
+    )
+    return {"ok": True, "unassigned_matches": len(matches)}
+
+
+@router.post("/tournaments/{tournament_id}/schedule-assign-unit")
+async def assign_schedule_unit(
+    tournament_id: int,
+    data: ScheduleUnitAssignIn,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Быстро назначает готовые бои категории или группы на площадку."""
+
+    _get_or_404(db, Tournament, tournament_id, "Турнир")
+    try:
+        assigned = assign_ready_category_unit(
+            db, tournament_id, data.category_id, data.area_id, data.group_name.strip()
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if not assigned:
+        raise HTTPException(409, "В выбранном блоке нет готовых неназначенных боёв")
+    audit(
+        db, tournament_id, "SCHEDULE_UNIT_ASSIGNED", "category", data.category_id,
+        area_id=data.area_id,
+        payload={"group_name": data.group_name.strip(), "assigned": assigned},
+    )
+    db.commit()
+    await _broadcast(request, {"type": "schedule_changed", "tournament_id": tournament_id})
+    return {"ok": True, "assigned": assigned}
+
+
 @router.post("/schedule/assign")
 async def assign_match(
     data: AssignIn,
@@ -195,6 +396,8 @@ async def assign_match(
         target_area = _get_or_404(db, Area, data.area_id, "Площадка")
         if target_area.tournament_id != match.category.tournament_id:
             raise HTTPException(400, "Площадка из другого турнира")
+        if not target_area.enabled:
+            raise HTTPException(409, "Нельзя назначить бой на отключенную площадку")
 
     # Если бой уже выбран текущим на прежней площадке, перенос не должен оставлять
     # там устаревшую ссылку на бой, который фактически находится в другой очереди.

@@ -164,17 +164,19 @@ def generate_round_robin(db: Session, category: Category) -> list[Match]:
         raise ValueError("Для формата «все со всеми» нужно минимум 2 активных участника")
     for cp in cps:
         cp.group_name = ""
+    # Круговой формат использует тот же алгоритм разведения выходов, что и группы.
+    # Это важно сделать до назначения на площадку: порядок match_no уже должен
+    # давать бойцам максимально возможный отдых между соседними поединками.
+    ordered_pairs = _spread_group_pair_order(list(combinations(cps, 2)))
     created: list[Match] = []
-    match_no = 1
-    for round_no, (a, b) in enumerate(combinations(cps, 2), 1):
+    for match_no, (a, b) in enumerate(ordered_pairs, 1):
         m = Match(
-            category_id=category.id, stage="round_robin", round_no=round_no, match_no=match_no,
+            category_id=category.id, stage="round_robin", round_no=match_no, match_no=match_no,
             red_cp_id=a.id, blue_cp_id=b.id, status="ready",
             duration_ms=category.match_duration_sec * 1000, remaining_ms=category.match_duration_sec * 1000,
         )
         db.add(m)
         created.append(m)
-        match_no += 1
     db.flush()
     category.status = "ready"
     category.bracket_locked = False

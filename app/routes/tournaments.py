@@ -194,3 +194,58 @@ async def create_area(
         {"type": "areas_changed", "tournament_id": tournament_id},
     )
     return {"id": area.id}
+
+
+@router.delete("/areas/{area_id}")
+async def delete_area(
+    area_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Удаляет площадку и возвращает её незавершённые бои в неназначенные."""
+
+    area = _get_or_404(db, Area, area_id, "Площадка")
+    active_matches = db.scalar(
+        select(func.count(Match.id)).where(
+            Match.area_id == area.id,
+            Match.status == "in_progress",
+        )
+    ) or 0
+    if active_matches:
+        raise HTTPException(
+            409,
+            "Нельзя удалить площадку, пока на ней идёт бой. Сначала завершите бой.",
+        )
+
+    assigned_matches = db.scalars(
+        select(Match).where(Match.area_id == area.id)
+    ).all()
+    returned_to_pool = 0
+    for match in assigned_matches:
+        match.area_id = None
+        if match.status != "finished":
+            match.queue_order = 0
+            returned_to_pool += 1
+
+    tournament_id = area.tournament_id
+    area.current_match_id = None
+    audit(
+        db,
+        tournament_id,
+        "AREA_DELETED",
+        "area",
+        area.id,
+        payload={"name": area.name, "returned_to_pool": returned_to_pool},
+    )
+    db.delete(area)
+    db.commit()
+
+    await _broadcast(
+        request,
+        {"type": "areas_changed", "tournament_id": tournament_id, "area_id": area_id},
+    )
+    await _broadcast(
+        request,
+        {"type": "schedule_changed", "tournament_id": tournament_id},
+    )
+    return {"ok": True, "returned_to_pool": returned_to_pool}

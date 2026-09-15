@@ -40,6 +40,8 @@ def _participant_dict(participant: Participant) -> dict[str, Any]:
         "name": participant.display_name,
         "club": participant.club,
         "city": participant.city,
+        "fee_paid": bool(participant.fee_paid),
+        "comment": participant.comment or "",
         "active": participant.active,
         "status": participant.status,
     }

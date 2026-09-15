@@ -73,6 +73,7 @@ def match_dict(match: Match) -> dict[str, Any]:
         "id": match.id,
         "category_id": match.category_id,
         "category_name": match.category.name,
+        "category_format": match.category.format,
         "stage": match.stage,
         "round_no": match.round_no,
         "match_no": match.match_no,

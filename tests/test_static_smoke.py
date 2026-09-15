@@ -38,4 +38,11 @@ def test_system_endpoint_reports_current_release():
     with TestClient(app) as client:
         response = client.get("/api/system")
         assert response.status_code == 200
-        assert response.json()["version"] == APP_VERSION == "1.1.0"
+        assert response.json()["version"] == APP_VERSION == "1.1.2"
+
+
+def test_empty_board_message_is_centered():
+    """Пустое табло держит сообщение о выборе боя по центру."""
+    css = (STATIC / "secretary-board.css").read_text(encoding="utf-8")
+    assert ".board-idle .board-center" in css
+    assert "justify-content:center" in css

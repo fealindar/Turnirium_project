@@ -13,9 +13,14 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..engine import restore_participant, withdraw_participant
-from ..models import CategoryParticipant, Match, Participant, Tournament
+from ..models import Category, CategoryParticipant, Match, Participant, Tournament
 from .common import _broadcast, _get_or_404, _participant_dict
-from .schemas import ParticipantImportIn, ParticipantIn, ParticipantStatusIn
+from .schemas import (
+    ParticipantDetailsIn,
+    ParticipantImportIn,
+    ParticipantIn,
+    ParticipantStatusIn,
+)
 
 router = APIRouter()
 
@@ -50,6 +55,24 @@ def _participant_key(
     )
 
 
+
+
+def _normalize_import_paid(raw_value: str | bool | int | None) -> bool:
+    """Нормализует признак оплаты взноса из CSV/JSON."""
+
+    if isinstance(raw_value, bool):
+        return raw_value
+    if isinstance(raw_value, int):
+        return bool(raw_value)
+    value = str(raw_value or "").strip().casefold()
+    if not value:
+        return False
+    if value in {"1", "yes", "true", "да", "оплачен", "сдал"}:
+        return True
+    if value in {"0", "no", "false", "нет", "не оплачен", "не сдал"}:
+        return False
+    raise ValueError(f"Неизвестное значение взноса: {raw_value}")
+
 def _normalize_import_status(raw_value: str) -> str:
     """Нормализует поддерживаемые текстовые обозначения статуса участника."""
 
@@ -70,7 +93,7 @@ def export_participants_csv(tournament_id: int, db: Session = Depends(get_db)):
 
     output = io.StringIO()
     writer = csv.writer(output, delimiter=";")
-    writer.writerow(["Фамилия", "Имя", "Клуб", "Город", "Статус"])
+    writer.writerow(["Фамилия", "Имя", "Клуб", "Город", "Статус", "Сдал взнос", "Комментарий"])
     for participant in rows:
         writer.writerow(
             [
@@ -79,6 +102,8 @@ def export_participants_csv(tournament_id: int, db: Session = Depends(get_db)):
                 participant.club,
                 participant.city,
                 participant.status,
+                "да" if participant.fee_paid else "нет",
+                participant.comment or "",
             ]
         )
 
@@ -105,7 +130,7 @@ def export_participants_json(tournament_id: int, db: Session = Depends(get_db)):
     )
 
 
-def _import_participant_rows(content: str, filename: str) -> list[dict[str, str]]:
+def _import_participant_rows(content: str, filename: str) -> list[dict[str, object]]:
     """Разбирает CSV/JSON в единый внутренний формат без записи в БД."""
 
     text = content.lstrip("\ufeff").strip()
@@ -134,6 +159,12 @@ def _import_participant_rows(content: str, filename: str) -> list[dict[str, str]
                     "status": str(
                         row.get("status") or row.get("Статус") or "active"
                     ).strip(),
+                    "fee_paid": row.get("fee_paid", row.get("Сдал взнос")),
+                    "comment": (
+                        row.get("comment")
+                        if "comment" in row
+                        else row.get("Комментарий")
+                    ),
                 }
             )
         return result
@@ -175,6 +206,14 @@ def _import_participant_rows(content: str, filename: str) -> list[dict[str, str]
                     or normalized.get("status")
                     or "active"
                 ),
+                "fee_paid": next(
+                    (normalized[key] for key in ("сдал взнос", "взнос", "fee_paid") if key in normalized),
+                    None,
+                ),
+                "comment": next(
+                    (normalized[key] for key in ("комментарий", "comment") if key in normalized),
+                    None,
+                ),
             }
         )
     return result
@@ -184,6 +223,33 @@ def _import_participant_rows(content: str, filename: str) -> list[dict[str, str]
 def list_participants(tournament_id: int, db: Session = Depends(get_db)):
     rows = db.scalars(_participants_query(tournament_id)).all()
     return [_participant_dict(participant) for participant in rows]
+
+
+@router.get("/participants/{participant_id}/categories")
+def participant_categories(participant_id: int, db: Session = Depends(get_db)):
+    """Возвращает категории, в которых заявлен выбранный участник."""
+
+    participant = _get_or_404(db, Participant, participant_id, "Участник")
+    links = db.scalars(
+        select(CategoryParticipant)
+        .join(Category)
+        .where(
+            CategoryParticipant.participant_id == participant.id,
+            Category.tournament_id == participant.tournament_id,
+        )
+        .order_by(Category.status == "completed", Category.name, Category.id)
+    ).all()
+    return [
+        {
+            "category_id": link.category.id,
+            "name": link.category.name,
+            "format": link.category.format,
+            "status": link.category.status,
+            "group_name": link.group_name,
+            "disqualified": bool(link.disqualified),
+        }
+        for link in links
+    ]
 
 
 @router.post("/tournaments/{tournament_id}/participants")
@@ -226,6 +292,12 @@ async def import_participants(
             )
         for row_number, row in enumerate(rows, start=2):
             row["status"] = _normalize_import_status(row.get("status", "active"))
+            if row.get("fee_paid") is not None:
+                row["fee_paid"] = _normalize_import_paid(row["fee_paid"])
+            if row.get("comment") is not None:
+                row["comment"] = str(row["comment"]).strip()
+                if len(row["comment"]) > 4000:
+                    raise ValueError(f"Строка {row_number}: комментарий длиннее 4000 символов")
             if not row.get("last_name", "").strip():
                 continue
             try:
@@ -271,15 +343,24 @@ async def import_participants(
             key = _participant_key(last_name, first_name, club, city)
             participant = by_key.get(key)
 
+            fee_paid = row.get("fee_paid")
+            comment = row.get("comment")
             if participant:
-                if participant.status == status:
-                    skipped += 1
-                    continue
-                if status == "withdrawn":
-                    withdraw_participant(db, participant, commit=False)
+                next_fee_paid = participant.fee_paid if fee_paid is None else bool(fee_paid)
+                next_comment = participant.comment if comment is None else str(comment)
+                changed = participant.fee_paid != next_fee_paid or participant.comment != next_comment
+                if participant.status != status:
+                    if status == "withdrawn":
+                        withdraw_participant(db, participant, commit=False)
+                    else:
+                        restore_participant(db, participant, commit=False)
+                    changed = True
+                participant.fee_paid = next_fee_paid
+                participant.comment = next_comment
+                if changed:
+                    updated += 1
                 else:
-                    restore_participant(db, participant, commit=False)
-                updated += 1
+                    skipped += 1
                 continue
 
             participant = Participant(
@@ -288,6 +369,8 @@ async def import_participants(
                 first_name=first_name,
                 club=club,
                 city=city,
+                fee_paid=bool(fee_paid) if fee_paid is not None else False,
+                comment=str(comment) if comment is not None else "",
                 status=status,
                 active=status == "active",
             )
@@ -337,6 +420,31 @@ async def update_participant(
         {"type": "bracket_changed", "tournament_id": participant.tournament_id},
     )
     return _participant_dict(participant)
+
+
+@router.put("/participants/{participant_id}/details")
+async def update_participant_details(
+    participant_id: int,
+    data: ParticipantDetailsIn,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Сохраняет организационные данные участника без изменения спортивных полей."""
+
+    participant = _get_or_404(db, Participant, participant_id, "Участник")
+    participant.fee_paid = data.fee_paid
+    participant.comment = data.comment
+    db.commit()
+    payload = _participant_dict(participant)
+    await _broadcast(
+        request,
+        {
+            "type": "participant_details_changed",
+            "tournament_id": participant.tournament_id,
+            "participant": payload,
+        },
+    )
+    return payload
 
 
 @router.post("/participants/{participant_id}/status")

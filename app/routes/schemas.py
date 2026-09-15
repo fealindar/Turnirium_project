@@ -177,6 +177,16 @@ class ParticipantStatusIn(BaseModel):
     status: ParticipantStatus
 
 
+class ParticipantDetailsIn(BaseModel):
+    fee_paid: bool = False
+    comment: str = Field(default="", max_length=4000)
+
+    @field_validator("comment")
+    @classmethod
+    def normalize_comment(cls, value: str) -> str:
+        return value.strip()
+
+
 class ParticipantImportIn(BaseModel):
     filename: str = Field(default="participants.csv", max_length=255)
     content: str = Field(max_length=5_000_000)
@@ -200,6 +210,12 @@ class AssignIn(BaseModel):
     match_id: int
     area_id: int | None = None
     position: int | None = None
+
+
+class ScheduleUnitAssignIn(BaseModel):
+    category_id: int
+    area_id: int
+    group_name: str = Field(default="", max_length=32)
 
 
 class ReorderIn(BaseModel):
