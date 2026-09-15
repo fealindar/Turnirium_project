@@ -1,0 +1,478 @@
+/* Версия v0.4: блокировка этапов, импорт, брендинг и доработка сеток */
+.app-brand-footer {
+  position:fixed;
+  right:12px;
+  bottom:8px;
+  z-index:500;
+  display:flex;
+  align-items:center;
+  gap:6px;
+  padding:5px 9px;
+  border-radius:9px;
+  background:rgba(15,23,42,.68);
+  color:#c8d1df;
+  font-size:11px;
+  font-weight:600;
+  line-height:1.15;
+  opacity:.82;
+  backdrop-filter:blur(4px);
+  pointer-events:none
+}
+.app-brand-footer a {
+  color:inherit;
+  text-decoration:none;
+  border-bottom:1px dotted currentColor;
+  pointer-events:auto
+}
+.app-brand-footer a:hover {
+  opacity:1;
+  color:#fff
+}
+.brand-sep {
+  opacity:.55
+}
+.admin-page .app-brand-footer,.secretary .app-brand-footer {
+  background:rgba(255,255,255,.88);
+  color:#536273;
+  border:1px solid #dde4ed
+}
+.participant-tools {
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+  margin:0 0 12px;
+  padding:9px;
+  background:#f7f9fc;
+  border:1px solid var(--line);
+  border-radius:11px
+}
+.participant-tools .muted {
+  font-size:12px;
+  margin-left:auto
+}
+.bracket-match .result-note {
+  box-sizing:border-box;
+  width:100%;
+  padding:5px 8px;
+  font-size:11px;
+  line-height:1.2;
+  white-space:normal;
+  overflow-wrap:anywhere;
+  text-align:center;
+  color:#516174;
+  background:#f4f7fa;
+  border-top:1px solid #e4e9ef;
+  border-radius:0 0 8px 8px;
+  min-height:24px
+}
+.third-place-wrap {
+  margin-top:18px;
+  padding-top:10px;
+  border-top:1px dashed #c8d2de
+}
+.third-place-wrap .round-title {
+  font-size:12px;
+  color:#74643d;
+  margin-bottom:6px
+}
+.third-place-wrap .bracket-match {
+  box-shadow:0 0 0 1px #ead9a9
+}
+.swiss-round.editable {
+  outline:2px solid #b9d2ef;
+  outline-offset:2px
+}
+.swiss-pair {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) 22px minmax(0,1fr);
+  align-items:center;
+  gap:5px;
+  margin:8px 0;
+  padding:7px;
+  border:1px solid #dce4ed;
+  border-radius:10px;
+  background:#f9fbfd
+}
+.swiss-pair .vs {
+  text-align:center;
+  color:#7b8796;
+  font-weight:800
+}
+.swiss-state {
+  grid-column:1/-1;
+  color:#718094;
+  text-align:center
+}
+.swiss-fighter {
+  min-width:0;
+  display:flex;
+  align-items:center;
+  gap:7px;
+  padding:8px;
+  border:1px solid #d8e1eb;
+  border-radius:8px;
+  background:#fff
+}
+.swiss-fighter[draggable="true"] {
+  cursor:grab
+}
+.swiss-fighter[draggable="true"]:hover,.swiss-fighter.drop-target {
+  border-color:#4f7fb8;
+  box-shadow:0 0 0 2px #cfe0f4
+}
+.swiss-fighter.dragging {
+  opacity:.45
+}
+.swiss-fighter>span:last-child {
+  min-width:0
+}
+.swiss-fighter b,.swiss-fighter small {
+  display:block;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap
+}
+.swiss-fighter small {
+  color:#7a8797;
+  margin-top:2px
+}
+.swiss-fighter.bye-card {
+  background:#f0f2f5;
+  color:#8b96a3
+}
+.swiss-fighter .drag-handle {
+  color:#8b9bad;
+  flex:0 0 auto
+}
+/* Публичная сетка повторяет структуру организатора, но остаётся компактной для экрана. */
+.public-mirror-bracket {
+  display:flex;
+  align-items:stretch;
+  justify-content:center;
+  gap:.45vw;
+  min-height:0;
+  overflow:hidden;
+  flex:1
+}
+.public-mirror-round,.public-final-column {
+  min-width:0;
+  flex:1;
+  display:flex;
+  flex-direction:column
+}
+.public-mirror-round h4,.public-final-column>h4,.public-third h4 {
+  margin:0 0 .35vh;
+  text-align:center;
+  color:#8ea0b5;
+  font-size:1.12vh;
+  font-weight:800
+}
+.public-mirror-round>div {
+  display:flex;
+  flex:1;
+  min-height:0;
+  flex-direction:column;
+  justify-content:space-around;
+  gap:.35vh
+}
+.public-final-column {
+  justify-content:center;
+  max-width:19%
+}
+.public-bracket-card {
+  background:#0d1219;
+  border:1px solid #314052;
+  border-radius:7px;
+  overflow:hidden;
+  font-size:1.02vh;
+  box-shadow:0 2px 8px #0002
+}
+.public-bracket-card>div {
+  display:flex;
+  justify-content:space-between;
+  gap:.3vw;
+  padding:.28vh .36vw;
+  border-bottom:1px solid #222e3d
+}
+.public-bracket-card>div:last-of-type {
+  border-bottom:0
+}
+.public-bracket-card span {
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap
+}
+.public-bracket-card b {
+  font-variant-numeric:tabular-nums
+}
+.public-bracket-card .winner {
+  font-weight:900;
+  color:#c5f1d8;
+  background:#13231d
+}
+.public-bracket-card small {
+  display:block;
+  padding:.22vh .35vw;
+  color:#8c9bad;
+  border-top:1px solid #223040;
+  white-space:normal
+}
+.public-third {
+  margin-top:.85vh;
+  padding-top:.6vh;
+  border-top:1px dashed #465467
+}
+@media(max-width:1100px) {
+  .participant-tools .muted {
+    width:100%;
+    margin-left:0
+  }
+  .public-mirror-round h4,.public-final-column>h4,.public-third h4 {
+    font-size:10px
+  }
+  .public-bracket-card {
+    font-size:9px
+  }
+}
+/* Версия v0.5: правила категорий и швейцарская раскладка */
+.category-format-settings[hidden] {
+  display:none!important
+}
+.rules-subcard {
+  border:1px solid #dfe7f0;
+  background:#f7faff;
+  border-radius:12px;
+  padding:12px 14px
+}
+.top-gap-small {
+  margin-top:8px
+}
+.rules-subcard>small {
+  display:block;
+  color:var(--muted);
+  margin-top:8px;
+  line-height:1.4
+}
+.swiss-rounds {
+  display:flex;
+  flex-direction:column;
+  gap:14px
+}
+.swiss-round {
+  width:100%;
+  min-width:0;
+  border:1px solid #dfe6ef;
+  border-radius:14px;
+  padding:12px;
+  background:#f8fafc
+}
+.swiss-round-head {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:10px
+}
+.swiss-round-head h3 {
+  margin:0
+}
+.swiss-round-head span {
+  font-size:12px;
+  color:var(--muted);
+  font-weight:700
+}
+.swiss-pairs-grid {
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(340px,1fr));
+  gap:10px
+}
+.swiss-pair {
+  margin:0;
+  min-width:0
+}
+.swiss-round.editable {
+  outline:2px solid #b9d2ef;
+  outline-offset:2px;
+  background:#f5f9fe
+}
+@media(max-width:900px) {
+  .swiss-pairs-grid {
+    grid-template-columns:1fr
+  }
+  .admin-two {
+    grid-template-columns:1fr
+  }
+}
+/* Версия v0.5: безопасная корректировка завершённых боёв */
+.correction-overlay {
+  position:fixed;
+  inset:0;
+  z-index:3000;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:20px;
+  background:rgba(12,20,32,.66);
+  backdrop-filter:blur(3px)
+}
+.correction-dialog {
+  width:min(720px,96vw);
+  max-height:92vh;
+  overflow:auto;
+  background:#fff;
+  border:1px solid #d8e1ec;
+  border-radius:18px;
+  box-shadow:0 24px 70px #0005;
+  padding:18px
+}
+.correction-head {
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:18px
+}
+.correction-head h2 {
+  margin:0
+}
+.correction-head p {
+  margin:5px 0 0;
+  color:var(--muted)
+}
+.icon-btn {
+  width:36px;
+  height:36px;
+  padding:0;
+  border-radius:50%;
+  font-size:23px;
+  line-height:1
+}
+.correction-warning {
+  margin:14px 0;
+  padding:10px 12px;
+  border:1px solid #ecd9a7;
+  border-radius:10px;
+  background:#fff9e9;
+  color:#705b24;
+  font-size:13px;
+  line-height:1.4
+}
+.correction-sides {
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:12px
+}
+.correction-side {
+  padding:13px;
+  border-radius:12px;
+  border:1px solid #dfe6ef;
+  background:#f8fafc
+}
+.correction-side.red {
+  border-top:4px solid #d6515c
+}
+.correction-side.blue {
+  border-top:4px solid #4c81c5
+}
+.correction-side>b,.correction-side>small {
+  display:block
+}
+.correction-side>small {
+  min-height:18px;
+  color:var(--muted);
+  margin:2px 0 10px
+}
+.correction-side label {
+  display:grid;
+  grid-template-columns:1fr 100px;
+  align-items:center;
+  gap:10px;
+  margin-top:8px;
+  font-size:13px;
+  font-weight:700
+}
+.correction-actions {
+  justify-content:flex-end
+}
+.match-meta-right {
+  display:flex;
+  align-items:center;
+  gap:5px
+}
+.mini-edit,.link-edit {
+  border:0!important;
+  box-shadow:none!important;
+  background:transparent!important;
+  color:#55708f!important;
+  padding:1px 4px!important;
+  font-size:11px!important;
+  min-height:0!important
+}
+.mini-edit:hover,.link-edit:hover {
+  color:#174f89!important;
+  text-decoration:underline
+}
+.link-edit {
+  display:inline!important
+}
+.match-chip .top-gap-small {
+  margin-top:7px
+}
+@media(max-width:620px) {
+  .correction-sides {
+    grid-template-columns:1fr
+  }
+  .correction-dialog {
+    padding:13px
+  }
+}
+/* Версия v0.6: интервалы расписания */
+.schedule-settings {
+  display:grid;
+  grid-template-columns:minmax(280px,1.4fr) auto minmax(180px,.55fr) auto auto;
+  gap:12px;
+  align-items:end;
+  margin-bottom:12px
+}
+.schedule-settings>div:first-child {
+  align-self:center
+}
+.schedule-settings small {
+  display:block;
+  color:var(--muted);
+  font-weight:400;
+  margin-top:4px;
+  max-width:620px
+}
+.schedule-settings .check-row {
+  margin:0 0 6px
+}
+.compact-field {
+  min-width:180px
+}
+.schedule-warning {
+  font-size:12px;
+  color:#8a5a00;
+  background:#fff5d9;
+  border:1px solid #efd28a;
+  border-radius:9px;
+  padding:7px 9px;
+  grid-column:1/-1
+}
+.match-chip.repeat-risk {
+  border-color:#e7bd66;
+  background:#fffaf0
+}
+.repeat-note {
+  color:#8a5a00;
+  font-size:10px;
+  font-weight:700
+}
+@media(max-width:1150px) {
+  .schedule-settings {
+    grid-template-columns:1fr 1fr
+  }
+  .schedule-settings>div:first-child,.schedule-warning {
+    grid-column:1/-1
+  }
+}

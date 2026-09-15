@@ -1,0 +1,139 @@
+/* Публичный экран */
+.public-screen {
+  min-height:100vh;
+  background:#0b0e14;
+  color:white;
+  padding:2vh 2vw
+}
+.public-head {
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between
+}
+.public-head h1 {
+  font-size:4vh;
+  margin:0 0 2vh
+}
+.public-head span {
+  color:#8593a7
+}
+.public-grid {
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(420px,1fr));
+  gap:1.5vh
+}
+.public-area {
+  background:#151a23;
+  border:1px solid #323b4a;
+  border-radius:14px;
+  padding:2vh
+}
+.public-area h2 {
+  font-size:3vh;
+  margin:0 0 1.5vh
+}
+.public-fight {
+  font-size:3vh;
+  font-weight:700
+}
+.public-timer {
+  font-size:4vh;
+  font-weight:900;
+  margin:1vh 0
+}
+.public-next {
+  font-size:2vh;
+  color:#bdc7d5;
+  border-top:1px solid #313a4a;
+  padding-top:1vh;
+  margin-top:1vh
+}
+.toast {
+  position:fixed;
+  right:16px;
+  bottom:16px;
+  max-width:430px;
+  padding:11px 15px;
+  border-radius:10px;
+  background:#111827;
+  color:white;
+  opacity:0;
+  pointer-events:none;
+  transition:.2s;
+  z-index:300;
+  box-shadow:0 10px 30px #0004
+}
+.toast.show {
+  opacity:1
+}
+.toast.error {
+  background:#8b1e1e
+}
+@media(max-width:1000px) {
+  .metric-grid {
+    grid-template-columns:repeat(2,1fr)
+  }
+  .grid2,.grid3,.fight-panel {
+    grid-template-columns:1fr
+  }
+  .form-card {
+    position:static
+  }
+  .schedule {
+    grid-template-columns:1fr
+  }
+  .tournament-toolbar {
+    align-items:stretch;
+    flex-direction:column
+  }
+  .toolbar-hint {
+    margin-left:0
+  }
+  .board-main {
+    grid-template-columns:1fr 170px 1fr
+  }
+  .board-name {
+    font-size:4vh
+  }
+  .board-score {
+    font-size:12vh
+  }
+  .board-next {
+    grid-template-columns:1fr
+  }
+  .board-next .next-caption {
+    text-align:center
+  }
+  .timer {
+    font-size:48px
+  }
+}
+@media(max-width:650px) {
+  .admin-header {
+    padding:0 12px
+  }
+  .header-meta {
+    display:none
+  }
+  .connection-pill span:last-child {
+    display:none
+  }
+  .admin-shell {
+    padding:12px
+  }
+  .metric-grid {
+    grid-template-columns:1fr 1fr
+  }
+  .area-dashboard {
+    grid-template-columns:1fr
+  }
+  .admin-nav {
+    width:100%
+  }
+  .groups-grid {
+    grid-template-columns:1fr
+  }
+  .queue-preview {
+    grid-template-columns:1fr
+  }
+}

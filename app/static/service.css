@@ -1,0 +1,86 @@
+/* Версия v0.10: выбор рабочей базы данных */
+.service-grid {
+  display:grid;
+  grid-template-columns:minmax(0,1.15fr) minmax(360px,.85fr);
+  gap:16px;
+  align-items:start
+}
+.current-db-box {
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  padding:12px;
+  border:1px solid #d7e2ee;
+  border-radius:11px;
+  background:#f6f9fc
+}
+.current-db-box span {
+  font-size:11px;
+  font-weight:800;
+  text-transform:uppercase;
+  letter-spacing:.05em;
+  color:var(--muted)
+}
+.current-db-box code {
+  overflow-wrap:anywhere;
+  white-space:normal;
+  font-size:12px
+}
+.database-path-row {
+  display:flex;
+  align-items:end;
+  gap:10px
+}
+.database-path-row .field {
+  min-width:0
+}
+.database-path-row button {
+  flex:0 0 auto
+}
+.header-meta {
+  max-width:44vw;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap
+}
+@media(max-width:980px) {
+  .service-grid {
+    grid-template-columns:1fr
+  }
+  .database-path-row {
+    align-items:stretch;
+    flex-direction:column
+  }
+  .database-path-row button {
+    align-self:flex-start
+  }
+  .header-meta {
+    max-width:35vw
+  }
+}
+/* Версия v1.0.5: переход секретаря между боями и иконка в веб-шапке */
+.secretary-brand {
+  margin-right:auto
+}
+.secretary-brand .brand-title {
+  color:#fff
+}
+.secretary-brand .brand-sub {
+  color:#b9c7d8
+}
+.next-fight-lock {
+  display:block;
+  color:#f1c4c4;
+  text-align:center;
+  font-size:11px;
+  line-height:1.3
+}
+.center-actions #nextFight:disabled {
+  opacity:.48;
+  cursor:not-allowed
+}
+.topbar .brand-icon {
+  width:36px;
+  height:36px;
+  border-radius:9px
+}

@@ -1,0 +1,237 @@
+/* Сетки и группы */
+.bracket-toolbar {
+  display:flex;
+  align-items:flex-end;
+  gap:9px;
+  flex-wrap:wrap;
+  background:#fff;
+  border:1px solid var(--line);
+  border-radius:16px;
+  padding:13px 15px
+}
+.bracket-toolbar .field {
+  min-width:280px
+}
+.groups-grid {
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
+  gap:12px
+}
+.group-box {
+  background:#f7f9fc;
+  border:1px solid var(--line);
+  border-radius:14px;
+  overflow:hidden
+}
+.group-title {
+  display:flex;
+  justify-content:space-between;
+  padding:11px 12px;
+  background:#edf2f7;
+  border-bottom:1px solid var(--line)
+}
+.group-title span {
+  font-size:12px;
+  color:var(--muted)
+}
+.group-members {
+  padding:8px;
+  min-height:100px
+}
+.group-member {
+  display:flex;
+  align-items:center;
+  gap:9px;
+  background:#fff;
+  border:1px solid #dfe6ef;
+  border-radius:10px;
+  padding:9px;
+  margin-bottom:7px
+}
+.group-member small {
+  display:block;
+  color:var(--muted);
+  margin-top:2px
+}
+.group-matches {
+  margin-top:14px
+}
+.group-matches h3 {
+  margin-bottom:8px
+}
+.bracket-section {
+  overflow:hidden
+}
+.bracket {
+  display:flex;
+  gap:18px;
+  overflow:auto;
+  padding:4px 2px 12px;
+  align-items:flex-start
+}
+.round {
+  min-width:270px;
+  display:flex;
+  flex-direction:column;
+  gap:12px
+}
+.round-title {
+  font-weight:900;
+  color:#36506f;
+  background:#eef3f9;
+  border-radius:9px;
+  padding:7px 10px
+}
+.bracket-match {
+  border:1px solid #dbe3ec;
+  border-radius:12px;
+  background:#fff;
+  box-shadow:0 2px 8px rgba(26,40,60,.04);
+  overflow:hidden
+}
+.match-meta {
+  display:flex;
+  justify-content:space-between;
+  padding:6px 9px;
+  font-size:10px;
+  text-transform:uppercase;
+  letter-spacing:.05em;
+  color:#7b8796;
+  background:#f7f9fc
+}
+.bracket-slot {
+  display:grid;
+  grid-template-columns:8px 1fr auto;
+  align-items:center;
+  gap:8px;
+  padding:9px 9px;
+  border-top:1px solid #edf1f5;
+  min-height:54px
+}
+.bracket-slot[draggable="true"] {
+  cursor:grab
+}
+.bracket-slot.winner {
+  background:#edf8f2
+}
+.side-mark {
+  width:7px;
+  height:28px;
+  border-radius:5px
+}
+.side-mark.red {
+  background:var(--red)
+}
+.side-mark.blue {
+  background:var(--blue)
+}
+.slot-person {
+  min-width:0
+}
+.slot-person b {
+  display:block;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis
+}
+.slot-person small {
+  display:block;
+  color:var(--muted);
+  font-size:10px;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis
+}
+.result-note {
+  font-size:10px;
+  color:#735319;
+  padding:5px 9px;
+  background:#fff9e8;
+  border-top:1px solid #f4e2aa
+}
+.swiss-rounds {
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(250px,1fr));
+  gap:12px
+}
+.swiss-round h3 {
+  margin-bottom:9px
+}
+.match-chip {
+  border:1px solid #dae2ec;
+  border-radius:11px;
+  padding:10px;
+  background:#fff;
+  margin:7px 0;
+  font-size:12px;
+  display:flex;
+  flex-direction:column;
+  gap:5px
+}
+.match-chip.current {
+  outline:2px solid #315d96
+}
+.match-chip-title {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:7px
+}
+.match-pair {
+  display:flex;
+  align-items:center;
+  gap:7px
+}
+.red-dot,.blue-dot {
+  width:8px;
+  height:8px;
+  border-radius:50%;
+  flex:0 0 auto
+}
+.red-dot {
+  background:var(--red)
+}
+.blue-dot {
+  background:var(--blue)
+}
+/* Расписание */
+.schedule {
+  display:grid;
+  grid-template-columns:260px repeat(auto-fit,minmax(285px,1fr));
+  gap:12px;
+  align-items:start
+}
+.schedule-col {
+  min-height:190px;
+  background:#edf2f7;
+  border:1px solid #dce4ed;
+  border-radius:14px;
+  padding:9px;
+  transition:.15s
+}
+.schedule-col.unassigned {
+  background:#f4f5f7
+}
+.schedule-head {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:3px 3px 7px
+}
+.schedule-head h3 {
+  font-size:14px;
+  margin:0
+}
+.schedule-head span {
+  font-size:11px;
+  color:var(--muted);
+  background:#fff;
+  padding:3px 7px;
+  border-radius:999px
+}
+.schedule-empty {
+  color:var(--muted);
+  font-size:12px;
+  text-align:center;
+  padding:30px 8px
+}
