@@ -1,0 +1,152 @@
+/* Адаптивная компоновка сеток, таблиц и рабочих экранов */
+@media(min-width:1050px) {
+  .mirror-bracket-scroll {
+    overflow-x:hidden
+  }
+  .mirror-bracket {
+    width:100%;
+    min-width:0;
+    gap:clamp(8px,1.25vw,22px);
+    padding-left:clamp(6px,1.4vw,24px);
+    padding-right:clamp(6px,1.4vw,24px)
+  }
+  .mirror-round,.final-column {
+    width:auto;
+    min-width:0;
+    flex:1 1 0
+  }
+  .bracket-match {
+    min-width:0
+  }
+  .fighter-card {
+    padding-left:7px;
+    padding-right:22px
+  }
+}
+.compact-table {
+  max-width:100%
+}
+.compact-table th,.compact-table td {
+  overflow-wrap:anywhere
+}
+.public-table-box {
+  min-width:0;
+  overflow:hidden
+}
+.public-table-box table {
+  table-layout:auto
+}
+.secretary-context {
+  width:100%;
+  display:flex;
+  flex-wrap:wrap;
+  justify-content:center;
+  gap:7px;
+  margin-bottom:8px
+}
+.secretary-context-badge {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:28px;
+  border-radius:999px;
+  padding:5px 10px;
+  font-size:12px;
+  line-height:1;
+  font-weight:900;
+  letter-spacing:.025em;
+  background:#26364b;
+  color:#dce6f2;
+  border:1px solid #3c506b
+}
+.secretary-context-badge.stage {
+  background:#fff;
+  color:#172132;
+  border-color:#ccd6e1
+}
+.timer-controls .timer-toggle {
+  flex:1 1 100%;
+  width:100%;
+  min-height:72px;
+  padding:16px 20px;
+  border-radius:14px;
+  font-size:24px;
+  font-weight:950;
+  letter-spacing:.02em;
+  box-shadow:0 5px 15px rgba(0,0,0,.18)
+}
+.timer-controls .timer-toggle.running {
+  background:#f4b942;
+  color:#201703;
+  border-color:#d99b20
+}
+.timer-controls .timer-toggle:not(.running) {
+  background:#eaf7ef;
+  color:#155a32;
+  border-color:#9ccdb0
+}
+.timer-controls .timer-secondary {
+  flex:1 1 calc(50% - 4px);
+  min-height:44px
+}
+@media(max-width:1049px) {
+  .mirror-bracket-scroll {
+    overscroll-behavior-x:contain
+  }
+  .mirror-round,.final-column {
+    width:220px
+  }
+  .bracket-match {
+    min-width:205px
+  }
+}
+@media(max-width:760px) {
+  .table-wrap {
+    overflow-x:auto;
+    -webkit-overflow-scrolling:touch
+  }
+  .fight-panel {
+    gap:8px
+  }
+  .timer-controls .timer-toggle {
+    min-height:64px;
+    font-size:21px
+  }
+}
+.public-mirror-bracket {
+  position:relative
+}
+.public-bracket-lines {
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  overflow:visible;
+  pointer-events:none;
+  z-index:0
+}
+.public-bracket-lines path {
+  fill:none;
+  stroke:#61758d;
+  stroke-width:1.6;
+  opacity:.9;
+  vector-effect:non-scaling-stroke
+}
+.public-mirror-round,.public-final-column {
+  position:relative;
+  z-index:1
+}
+.public-bracket-card {
+  position:relative;
+  z-index:2
+}
+
+@media(max-width:520px) {
+  .public-grid,.public-details,.public-group-tables {
+    grid-template-columns:minmax(0,1fr)
+  }
+  .public-screen {
+    padding-left:10px;
+    padding-right:10px
+  }
+}
