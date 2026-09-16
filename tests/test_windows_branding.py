@@ -54,3 +54,50 @@ def test_web_headers_use_the_turnirium_icon_asset():
     assert '/static/turnirium_icon.png' in js_source
     assert 'brandIconHtml()' in js_source
     assert '/static/turnirium_icon.png' in index_html
+
+
+def test_pyinstaller_release_is_onefile_and_hiddenimports_are_minimal():
+    root = Path(__file__).resolve().parents[1]
+    text = (root / "Turnirium.spec").read_text(encoding="utf-8")
+    assert "noarchive=False" in text
+    assert "COLLECT(" not in text
+    assert "a.binaries" in text
+    assert "a.datas" in text
+    assert "exclude_binaries=True" not in text
+    assert "collect_submodules" not in text
+    assert "'websockets'" not in text
+    assert "collect_submodules('pystray')" not in text
+    assert "'pystray._win32'" in text
+    assert "'psutil'" not in text
+    assert "'tkinter'" not in text
+    assert "version='version_info.txt'" in text
+    assert "upx=False" in text
+    assert "runtime_tmpdir=" not in text
+    assert "runtime_hooks=[]" in text
+
+
+def test_windows_version_info_matches_application_version():
+    root = Path(__file__).resolve().parents[1]
+    version = (root / "app" / "version.py").read_text(encoding="utf-8")
+    match = __import__("re").search(r'APP_VERSION\s*=\s*["\']([^"\']+)', version)
+    assert match is not None
+    app_version = match.group(1)
+    version_info = (root / "version_info.txt").read_text(encoding="utf-8")
+    assert f"StringStruct('FileVersion', '{app_version}')" in version_info
+    assert f"StringStruct('ProductVersion', '{app_version}')" in version_info
+    assert "StringStruct('ProductName', 'Turnirium')" in version_info
+    assert "StringStruct('OriginalFilename', 'Turnirium.exe')" in version_info
+    assert "StringStruct('CompanyName', 'Клуб РЕЙД, г. Донецк (https://vk.ru/hema_dn)')" in version_info
+    assert "StringStruct('FileDescription', 'Простая система для проведения ХЕМА турниров, и не только')" in version_info
+
+
+def test_windows_build_has_no_psutil_and_debug_build_uses_noarchive():
+    root = Path(__file__).resolve().parents[1]
+    requirements = (root / 'requirements.txt').read_text(encoding='utf-8').lower()
+    network_source = (root / 'app' / 'network.py').read_text(encoding='utf-8').lower()
+    debug_build = (root / 'build_debug_windows.bat').read_text(encoding='utf-8').lower()
+
+    assert 'psutil' not in requirements
+    assert 'import psutil' not in network_source
+    assert '--debug noarchive' in debug_build
+    assert '--noupx' in debug_build

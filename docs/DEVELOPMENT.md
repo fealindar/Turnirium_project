@@ -46,7 +46,11 @@ for f in app/static/*.js; do node --check "$f"; done
 
 Версия приложения хранится в `app/version.py`. Для исправлений без изменения формата данных увеличивается patch-номер.
 
-Windows-сборка берёт версию из этого файла автоматически.
+Windows-сборка берёт версию из этого файла автоматически. `tools/generate_version_info.py` формирует `version_info.txt`, который PyInstaller встраивает в PE VERSIONINFO.
+
+Релизная Windows-сборка использует `onefile`: `dist/Turnirium.exe` содержит стандартный PyInstaller PYZ и bundled runtime. `UPX` отключён, `runtime_tmpdir` не переопределяется, custom runtime hooks не используются, а `hiddenimports` минимизированы. Отладочная сборка остаётся `onedir + noarchive`, потому что так проще диагностировать проблемы импорта. Onefile удобнее для распространения, но его self-extracting bootloader и встроенный архив могут чаще вызывать эвристические антивирусные срабатывания, чем onedir.
+
+`hiddenimports` в `Turnirium.spec` должны содержать только подтверждённые динамические импорты Uvicorn и платформенный backend `pystray._win32`. Не использовать `collect_submodules()` для `websockets`, `pystray` и других пакетов без подтверждённой необходимости. `psutil` не используется: адреса LAN определяются стандартным модулем `socket`, чтобы не включать в сборку лишнее native-расширение для инспекции процессов и системы.
 
 ## Перед ручным релизом
 

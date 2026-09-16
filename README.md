@@ -57,7 +57,9 @@ python run.py --server-only
 build_windows.bat
 ```
 
-Зависимости для сборки перечислены в `requirements-build.txt`. Готовый файл создаётся в каталоге `dist`.
+Зависимости для сборки перечислены в `requirements-build.txt`. Релизная сборка выполняется в режиме **PyInstaller onefile**. Результат — один файл `dist\Turnirium.exe`; стандартный PYZ-архив сохраняется (`noarchive=False`), UPX отключён, а список `hiddenimports` ограничен только динамически выбираемыми модулями.
+
+Для переноса на другой компьютер достаточно копировать **только `Turnirium.exe`**. При запуске PyInstaller onefile временно извлекает runtime-файлы в каталог `_MEI...` системной временной директории — это штатное поведение. Перед PyInstaller скрипт автоматически генерирует `version_info.txt` из `app/version.py`, поэтому свойства EXE в Windows содержат ProductName, FileDescription, FileVersion и ProductVersion.
 
 ## Данные
 
