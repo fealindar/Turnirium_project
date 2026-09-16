@@ -57,9 +57,18 @@ python run.py --server-only
 build_windows.bat
 ```
 
-Зависимости для сборки перечислены в `requirements-build.txt`. Релизная сборка выполняется в режиме **PyInstaller onefile**. Результат — один файл `dist\Turnirium.exe`; стандартный PYZ-архив сохраняется (`noarchive=False`), UPX отключён, а список `hiddenimports` ограничен только динамически выбираемыми модулями.
+Зависимости для сборки перечислены в `requirements-build.txt`. Один запуск `build_windows.bat` по умолчанию создаёт в `dist` **два релизных варианта** с версией из `app/version.py` в имени:
 
-Для переноса на другой компьютер достаточно копировать **только `Turnirium.exe`**. При запуске PyInstaller onefile временно извлекает runtime-файлы в каталог `_MEI...` системной временной директории — это штатное поведение. Перед PyInstaller скрипт автоматически генерирует `version_info.txt` из `app/version.py`, поэтому свойства EXE в Windows содержат ProductName, FileDescription, FileVersion и ProductVersion.
+- `Turnirium_v1.1.4.exe` — PyInstaller **onefile**;
+- `Turnirium_v1.1.4.zip` — PyInstaller **onedir + noarchive**, уже упакованный в ZIP. После распаковки ZIP получается каталог `Turnirium_v1.1.4\` с одноимённым EXE и `_internal`.
+
+Версия `1.1.4` здесь приведена для текущего релиза; имена следующих сборок меняются автоматически вместе с `APP_VERSION`. UPX, custom runtime hooks и нестандартный `runtime_tmpdir` не используются. Для `onefile` сохраняется стандартный PYZ (`noarchive=False`), а второй вариант специально собирается с `noarchive=True`.
+
+Если важна минимизация ложных срабатываний Microsoft Defender/SmartScreen, предпочтительнее распространять ZIP с **onedir + noarchive**: он не использует onefile self-extraction. Onefile оставлен как удобный переносимый вариант, но сам формат self-extracting executable статистически чаще попадает под ML/эвристические проверки. Сборщик не применяет обфускацию, UPX или нестандартные загрузчики.
+
+Для публичных релизов поддерживается опциональная Authenticode-подпись. Установите сертификат code-signing в Windows Certificate Store и задайте `TURNIRIUM_SIGN_CERT_SHA1` и `TURNIRIUM_TIMESTAMP_URL`; тогда сборщик подпишет основной EXE обоих вариантов через `signtool.exe` и проверит подпись перед упаковкой ZIP. Подпись повышает доверие к происхождению файла, но не является гарантией отсутствия антивирусных срабатываний.
+
+Перед PyInstaller скрипт автоматически генерирует `version_info.txt` из `app/version.py`, поэтому PE VERSIONINFO содержит ProductName, FileDescription, FileVersion, ProductVersion и versioned `OriginalFilename`.
 
 ## Данные
 

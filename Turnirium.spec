@@ -1,11 +1,23 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 # One-file release build.
-# Keep the bundle as close as possible to the stock PyInstaller layout:
-# - no UPX;
+# Keep the bundle close to the stock PyInstaller layout. In particular:
+# - no UPX or third-party executable packer;
 # - no custom runtime hooks;
 # - no forced runtime_tmpdir;
 # - only imports that are genuinely selected dynamically at runtime.
+#
+# The versioned artifact name is derived from app/version.py so the file on disk,
+# PE VERSIONINFO and application version cannot drift independently.
+from pathlib import Path
+
+
+ROOT = Path(SPECPATH)
+version_scope = {}
+exec((ROOT / 'app' / 'version.py').read_text(encoding='utf-8'), version_scope)
+APP_VERSION = version_scope['APP_VERSION']
+BUILD_NAME = f'Turnirium_v{APP_VERSION}'
+
 hiddenimports = [
     'uvicorn.logging',
     'uvicorn.loops.auto',
@@ -30,25 +42,23 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],
-    # In onefile mode keep pure Python modules in the normal PYZ archive.
-    # noarchive=True would turn them into many individual files that still
-    # have to be embedded and extracted by the onefile bootloader.
+    # Onefile keeps normal pure-Python modules in PyInstaller's standard PYZ.
     noarchive=False,
     optimize=1,
 )
 
 pyz = PYZ(a.pure)
 
-# For onefile the binaries and data are passed directly to EXE and there is
-# intentionally no separate collection stage. At runtime PyInstaller extracts the
-# bundled dependencies to its temporary _MEI... directory.
+# Onefile passes binaries/data directly to EXE. PyInstaller extracts these to its
+# standard temporary _MEI directory at runtime. Do not replace this with a custom
+# extraction scheme; the stock bootloader is both simpler and easier to audit.
 exe = EXE(
     pyz,
     a.scripts,
     a.binaries,
     a.datas,
     [],
-    name='Turnirium',
+    name=BUILD_NAME,
     icon='assets/turnirium.ico',
     version='version_info.txt',
     debug=False,
@@ -61,6 +71,6 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    # Do not set runtime_tmpdir: the stock temporary-directory behavior is
-    # safer and avoids stale extracted DLLs between application versions.
+    uac_admin=False,
+    uac_uiaccess=False,
 )

@@ -21,7 +21,7 @@ VSVersionInfo(
             StringStruct('FileDescription', 'Простая система для проведения ХЕМА турниров, и не только'),
             StringStruct('FileVersion', '1.1.4'),
             StringStruct('InternalName', 'Turnirium'),
-            StringStruct('OriginalFilename', 'Turnirium.exe'),
+            StringStruct('OriginalFilename', 'Turnirium_v1.1.4.exe'),
             StringStruct('ProductName', 'Turnirium'),
             StringStruct('ProductVersion', '1.1.4')
           ]

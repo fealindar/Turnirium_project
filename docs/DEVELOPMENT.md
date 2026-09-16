@@ -46,11 +46,20 @@ for f in app/static/*.js; do node --check "$f"; done
 
 Версия приложения хранится в `app/version.py`. Для исправлений без изменения формата данных увеличивается patch-номер.
 
-Windows-сборка берёт версию из этого файла автоматически. `tools/generate_version_info.py` формирует `version_info.txt`, который PyInstaller встраивает в PE VERSIONINFO.
+Windows-сборка берёт версию из этого файла автоматически. `tools/generate_version_info.py` формирует `version_info.txt`, который PyInstaller встраивает в PE VERSIONINFO. Имя артефакта также выводится из этой версии: при `APP_VERSION = "1.1.4"` используются `Turnirium_v1.1.4.exe` и `Turnirium_v1.1.4.zip`.
 
-Релизная Windows-сборка использует `onefile`: `dist/Turnirium.exe` содержит стандартный PyInstaller PYZ и bundled runtime. `UPX` отключён, `runtime_tmpdir` не переопределяется, custom runtime hooks не используются, а `hiddenimports` минимизированы. Отладочная сборка остаётся `onedir + noarchive`, потому что так проще диагностировать проблемы импорта. Onefile удобнее для распространения, но его self-extracting bootloader и встроенный архив могут чаще вызывать эвристические антивирусные срабатывания, чем onedir.
+`build_windows.bat` всегда создаёт два релиза:
 
-`hiddenimports` в `Turnirium.spec` должны содержать только подтверждённые динамические импорты Uvicorn и платформенный backend `pystray._win32`. Не использовать `collect_submodules()` для `websockets`, `pystray` и других пакетов без подтверждённой необходимости. `psutil` не используется: адреса LAN определяются стандартным модулем `socket`, чтобы не включать в сборку лишнее native-расширение для инспекции процессов и системы.
+1. `Turnirium.spec` — **onefile**, обычный PYZ (`noarchive=False`);
+2. `Turnirium_onedir.spec` — **onedir + noarchive** (`noarchive=True`), после чего `tools/package_onedir.py` упаковывает весь versioned-каталог в ZIP. В `dist` остаются только versioned EXE и ZIP.
+
+Обе конфигурации используют stock PyInstaller bootloader, `UPX` отключён, `runtime_tmpdir` не переопределяется, custom runtime hooks отсутствуют, UAC elevation не запрашивается, а `hiddenimports` минимизированы. Не добавлять обфускацию, executable packers, шифрованные payload-контейнеры или самописный распаковщик ради попыток «обойти» эвристику: для легитимного приложения это обычно только ухудшает репутацию бинарника и усложняет диагностику.
+
+Для машин, где чувствительна эвристика Microsoft Defender, основным дистрибутивом следует считать `onedir + noarchive` ZIP. Onefile удобнее, но использует self-extraction и потому может получать больше ML/эвристического внимания. Если чистый onedir проходит, а onefile с тем же кодом определяется как `Wacatac`/generic ML, это сильный признак ложного срабатывания именно на упаковку, а не на бизнес-логику приложения.
+
+Для публичных релизов предусмотрена опциональная Authenticode-подпись через `tools/sign_windows_artifact.bat`. Сборщик подписывает main EXE до упаковки, если заданы `TURNIRIUM_SIGN_CERT_SHA1` и `TURNIRIUM_TIMESTAMP_URL`. Сертификат должен находиться в Windows Certificate Store; приватный ключ и пароль в проект не кладутся. `signtool.exe` ищется в `PATH` или задаётся через `TURNIRIUM_SIGNTOOL`. После подписи выполняется `signtool verify /pa /v`.
+
+`hiddenimports` в обоих release-spec должны содержать только подтверждённые динамические импорты Uvicorn и платформенный backend `pystray._win32`. Не использовать `collect_submodules()` для `websockets`, `pystray` и других пакетов без подтверждённой необходимости. `psutil` не используется: адреса LAN определяются стандартным модулем `socket`, чтобы не включать в сборку лишнее native-расширение для инспекции процессов и системы.
 
 ## Перед ручным релизом
 
