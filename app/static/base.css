@@ -423,11 +423,6 @@ textarea {
 .next-fight span {
   color:var(--muted)
 }
-.operation-tip {
-  margin-top:16px;
-  background:#f7fbff;
-  border-color:#cfe0f3
-}
 .empty-state {
   background:#fff;
   border:1px dashed #c8d4e3;

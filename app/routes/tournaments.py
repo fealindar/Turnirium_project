@@ -196,6 +196,60 @@ async def create_area(
     return {"id": area.id}
 
 
+@router.post("/areas/{area_id}/reset")
+async def reset_area_assignments(
+    area_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Возвращает все незавершённые бои площадки в нераспределённые."""
+
+    area = _get_or_404(db, Area, area_id, "Площадка")
+    active_matches = db.scalar(
+        select(func.count(Match.id)).where(
+            Match.area_id == area.id,
+            Match.status == "in_progress",
+        )
+    ) or 0
+    if active_matches:
+        raise HTTPException(
+            409,
+            "Нельзя сбросить площадку, пока на ней идёт бой. Сначала завершите бой.",
+        )
+
+    matches = db.scalars(
+        select(Match).where(
+            Match.area_id == area.id,
+            Match.status != "finished",
+        )
+    ).all()
+    for match in matches:
+        match.area_id = None
+        match.queue_order = 0
+
+    area.current_match_id = None
+    audit(
+        db,
+        area.tournament_id,
+        "AREA_SCHEDULE_RESET",
+        "area",
+        area.id,
+        payload={"name": area.name, "unassigned_matches": len(matches)},
+    )
+    tournament_id = area.tournament_id
+    db.commit()
+
+    await _broadcast(
+        request,
+        {"type": "area_changed", "tournament_id": tournament_id, "area_id": area_id},
+    )
+    await _broadcast(
+        request,
+        {"type": "schedule_changed", "tournament_id": tournament_id, "area_id": area_id},
+    )
+    return {"ok": True, "unassigned_matches": len(matches)}
+
+
 @router.delete("/areas/{area_id}")
 async def delete_area(
     area_id: int,

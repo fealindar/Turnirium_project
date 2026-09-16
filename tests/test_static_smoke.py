@@ -38,7 +38,7 @@ def test_system_endpoint_reports_current_release():
     with TestClient(app) as client:
         response = client.get("/api/system")
         assert response.status_code == 200
-        assert response.json()["version"] == APP_VERSION == "1.1.2"
+        assert response.json()["version"] == APP_VERSION == "1.1.4"
 
 
 def test_empty_board_message_is_centered():

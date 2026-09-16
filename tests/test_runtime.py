@@ -8,7 +8,7 @@ def test_runtime_endpoint_lists_interfaces_and_clients():
         r = client.get('/api/system/runtime')
         assert r.status_code == 200
         data = r.json()
-        assert data['version'] == '1.1.2'
+        assert data['version'] == '1.1.4'
         assert 'interfaces' in data and isinstance(data['interfaces'], list)
         assert data['client_count'] == 0
 

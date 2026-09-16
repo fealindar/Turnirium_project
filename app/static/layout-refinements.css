@@ -20,9 +20,6 @@
   border:1px solid var(--line);
   border-radius:12px
 }
-.category-actions {
-  margin-top:12px
-}
 .row-muted {
   opacity:.58
 }

@@ -174,8 +174,8 @@ def test_schedule_columns_never_wrap_and_management_controls_are_present() -> No
     assert "data-participant-categories" in admin_js
 
 
-def test_organizer_layout_is_centered_with_explicit_wide_workspaces() -> None:
-    """Обычные формы центрированы, а тяжёлые рабочие экраны расширяются отдельно."""
+def test_organizer_uses_one_wide_workspace_and_preserves_disclosures() -> None:
+    """Все вкладки организатора используют одну ширину, раскрытия переживают ререндер."""
 
     root = Path(__file__).resolve().parents[1] / "app" / "static"
     admin_css = (root / "admin-layout.css").read_text(encoding="utf-8")
@@ -184,16 +184,82 @@ def test_organizer_layout_is_centered_with_explicit_wide_workspaces() -> None:
     participants_css = (root / "participants.css").read_text(encoding="utf-8")
     common_js = (root / "common.js").read_text(encoding="utf-8")
     admin_js = (root / "admin.js").read_text(encoding="utf-8")
+    schedule_js = (root / "schedule.js").read_text(encoding="utf-8")
 
-    assert "#adminContent.admin-content-wide" in admin_css
-    assert "max-width:1240px" in admin_css
+    assert "--admin-workspace-max:1880px" in admin_css
+    assert ".admin-header-inner" in admin_css
+    assert "#adminContent,#adminContent.admin-content-wide" in admin_css
+    assert "max-width:1240px" not in admin_css
     assert "position:sticky" in admin_css and ".admin-nav" in admin_css
+    assert "white-space:nowrap" in admin_css
     assert "participant-create-card" in admin_css
     assert "height:clamp(540px,62vh,720px)" in categories_css
     assert ".quick-assignment-list" in schedule_css
     assert "flex-wrap:nowrap" in schedule_css
     assert ".schedule-main-actions" in schedule_css
     assert "installOverflowTooltips" in common_js
+    assert "participantExpanded:new Set()" in admin_js
+    assert "participantCategories:new Map()" in admin_js
+    assert "scheduleExpandedGroups:new Set()" in admin_js
+    assert "data-quick-groups-category" in schedule_js
     assert "data-participant-paid" in admin_js
     assert "data-participant-comment" in admin_js
     assert ".participant-paid" in participants_css
+
+
+def test_reset_single_area_returns_matches_without_deleting_area() -> None:
+    """Сброс площадки очищает её очередь, но сохраняет саму площадку."""
+
+    reset_db()
+    _, area_id, match_id = _scheduled_match()
+
+    with TestClient(app) as client:
+        response = client.post(f"/api/areas/{area_id}/reset")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["unassigned_matches"] == 1
+    with SessionLocal() as db:
+        area = db.get(Area, area_id)
+        match = db.get(Match, match_id)
+        assert area is not None and area.current_match_id is None
+        assert match is not None and match.area_id is None and match.queue_order == 0
+
+
+def test_reset_single_area_is_blocked_during_active_fight() -> None:
+    """Нельзя очистить площадку из-под уже идущего боя."""
+
+    reset_db()
+    _, area_id, match_id = _scheduled_match("in_progress")
+
+    with TestClient(app) as client:
+        response = client.post(f"/api/areas/{area_id}/reset")
+
+    assert response.status_code == 409
+    with SessionLocal() as db:
+        area = db.get(Area, area_id)
+        match = db.get(Match, match_id)
+        assert area is not None and area.current_match_id == match_id
+        assert match is not None and match.area_id == area_id
+
+
+def test_category_tab_defaults_to_roster_and_opens_rules_explicitly() -> None:
+    """Выбор категории не должен автоматически превращаться в редактирование правил."""
+
+    root = Path(__file__).resolve().parents[1] / "app" / "static"
+    categories_js = (root / "categories.js").read_text(encoding="utf-8")
+    categories_css = (root / "categories.css").read_text(encoding="utf-8")
+    admin_js = (root / "admin.js").read_text(encoding="utf-8")
+
+    assert "categoryEditingId:null" in admin_js
+    assert "categoryCreating:false" in admin_js
+    assert "!adminUiState.categoryCreating&&!adminState.categories.some" in admin_js
+    assert "if(b.dataset.tab!=='categories'){adminUiState.categoryCreating=false" in admin_js
+    assert "id=\"editCategoryRules\"" in categories_js
+    assert "const editing=!!c&&adminUiState.categoryEditingId===c.id" in categories_js
+    assert "${editing?categoryEditorHtml(c,locked):''}${categoryParticipantsHtml(c,locked)}" in categories_js
+    assert "adminUiState.categoryCreating=false;adminUiState.categoryEditingId=null;adminState.selectedCategoryId=Number" in categories_js
+    assert "adminUiState.categoryCreating=true;adminUiState.categoryEditingId=null;adminState.selectedCategoryId=null" in categories_js
+    assert "width:100%" in categories_css
+    assert "align-self:stretch" in categories_css
+    assert ".category-summary" in categories_css
+    assert "data-reset-area" in (root / "schedule.js").read_text(encoding="utf-8")

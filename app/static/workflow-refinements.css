@@ -476,3 +476,17 @@
     grid-column:1/-1
   }
 }
+
+@media(max-width:620px) {
+  .schedule-settings {
+    grid-template-columns:minmax(0,1fr)
+  }
+  .schedule-settings>div:first-child,
+  .schedule-warning,
+  .schedule-warning-summary {
+    grid-column:1
+  }
+  .compact-field {
+    min-width:0
+  }
+}

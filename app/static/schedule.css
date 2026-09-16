@@ -315,6 +315,26 @@
 .schedule-head-actions>span {
   flex:0 0 auto
 }
+.area-reset-btn {
+  min-width:0;
+  height:28px;
+  padding:0 8px;
+  border-radius:8px;
+  border:1px solid #c8d4e1;
+  background:#f7f9fc;
+  color:#445b75;
+  font-size:11px;
+  font-weight:800;
+  white-space:nowrap
+}
+.area-reset-btn:hover:not(:disabled) {
+  background:#edf3f9;
+  border-color:#9fb2c7
+}
+.area-reset-btn:disabled {
+  opacity:.45;
+  cursor:default
+}
 .area-delete-btn {
   width:28px;
   min-width:28px;
@@ -457,6 +477,16 @@
   }
 }
 @media(max-width:680px) {
+  .schedule-page-head {
+    align-items:flex-start;
+    flex-wrap:wrap
+  }
+  .schedule-main-actions {
+    width:100%;
+    justify-content:flex-start;
+    flex-wrap:wrap;
+    white-space:normal
+  }
   .quick-category-card {
     flex-basis:min(82vw,320px);
     min-width:min(82vw,320px)
