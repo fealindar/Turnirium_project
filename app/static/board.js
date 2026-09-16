@@ -19,7 +19,7 @@ async function initBoard(areaId){
   let state=null;
   const load=async()=>{try{state=await api(`/api/areas/${areaId}/state`);renderBoard(state);setTimerSnapshot(state.current)}catch(e){}};
   await load(); wsConnect(e=>{if(!e.area_id||Number(e.area_id)===Number(areaId)||e.type==='schedule_changed')load();});
-  clearInterval(window.__boardPaint);window.__boardPaint=setInterval(()=>{const el=$('#boardTimer');if(!el||!state?.current)return;const rem=timerNow();el.textContent=fmtTime(rem);const m=state.current,w=(m.timer_warning_sec||0)*1000;if(w>0&&rem>0&&rem<=w&&!boardWarned.get(m.id)){boardWarned.set(m.id,true);beep(900,.16,2,.72)}if(rem<=0&&!boardFinished.has(m.id)){boardFinished.add(m.id);beep(650,1.5,1,.82)}if(rem>w+1500)boardWarned.delete(m.id);},80);
+  clearInterval(window.__boardPaint);window.__boardPaint=setInterval(()=>{const el=$('#boardTimer');if(!el||!state?.current)return;const rem=timerNow();el.textContent=fmtTime(rem);const m=state.current,w=(m.timer_warning_sec||0)*1000;if(w>0&&rem>0&&rem<=w&&!boardWarned.get(m.id)){boardWarned.set(m.id,true);beep(950,.2,2,.99)}if(rem<=0&&!boardFinished.has(m.id)){boardFinished.add(m.id);beep(1050,1.5,1,.99)}if(rem>w+1500)boardWarned.delete(m.id);},80);
   setInterval(load,5000);
 }
 function renderBoard(st){
