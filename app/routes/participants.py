@@ -239,6 +239,20 @@ def participant_categories(participant_id: int, db: Session = Depends(get_db)):
         )
         .order_by(Category.status == "completed", Category.name, Category.id)
     ).all()
+    category_ids = [link.category_id for link in links]
+    started_category_ids: set[int] = set()
+    if category_ids:
+        started_category_ids = set(
+            db.scalars(
+                select(Match.category_id)
+                .where(
+                    Match.category_id.in_(category_ids),
+                    (Match.status == "in_progress")
+                    | ((Match.status == "finished") & (Match.result_reason != "BYE")),
+                )
+                .distinct()
+            ).all()
+        )
     return [
         {
             "category_id": link.category.id,
@@ -247,6 +261,10 @@ def participant_categories(participant_id: int, db: Session = Depends(get_db)):
             "status": link.category.status,
             "group_name": link.group_name,
             "disqualified": bool(link.disqualified),
+            "can_remove": (
+                link.category.status != "completed"
+                and link.category.id not in started_category_ids
+            ),
         }
         for link in links
     ]

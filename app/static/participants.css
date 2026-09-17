@@ -96,8 +96,9 @@
   border-radius:9px;
   background:#f9fbfd
 }
-.participant-category-item>div:first-child {
-  min-width:0
+.participant-category-main {
+  min-width:0;
+  flex:1
 }
 .participant-category-item b,.participant-category-item small {
   display:block
@@ -115,10 +116,19 @@
 }
 .participant-category-state {
   display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:6px;
+  flex:0 0 auto
+}
+.participant-category-pills {
+  display:flex;
   flex-wrap:wrap;
   justify-content:flex-end;
-  gap:4px;
-  flex:0 0 auto
+  gap:4px
+}
+.participant-category-remove {
+  white-space:nowrap
 }
 .participant-category-empty {
   color:var(--muted);

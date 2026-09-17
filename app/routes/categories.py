@@ -16,6 +16,7 @@ from ..engine import (
     auto_assign_ready_matches,
     category_dict,
     clear_category_matches,
+    generate_knockout,
     json_load,
 )
 from ..exporter import write_json_export, write_pdf_export
@@ -309,6 +310,90 @@ async def enroll(
     db.commit()
     await _broadcast(request, {"type": "category_changed", "category_id": category_id})
     return _cp_dict(link)
+
+
+@router.delete("/categories/{category_id}/participants/{participant_id}")
+async def remove_category_participant(
+    category_id: int,
+    participant_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Исключает бойца только из выбранной категории до начала реальных боёв."""
+
+    category = _get_or_404(db, Category, category_id, "Категория")
+    if category.status == "completed":
+        raise HTTPException(409, "Завершённую категорию сначала нужно вернуть в активные")
+    if _real_match_started(db, category_id):
+        raise HTTPException(409, "Исключить участника из категории нельзя после начала поединков")
+
+    link = db.scalar(
+        select(CategoryParticipant).where(
+            CategoryParticipant.category_id == category_id,
+            CategoryParticipant.participant_id == participant_id,
+        )
+    )
+    if not link:
+        raise HTTPException(404, "Участник не заявлен в этой категории")
+
+    had_matches = bool(
+        db.scalar(select(func.count(Match.id)).where(Match.category_id == category_id))
+    )
+    if had_matches:
+        try:
+            clear_category_matches(db, category)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        category.status = "draft"
+        category.bracket_locked = False
+
+    link_id = link.id
+    db.delete(link)
+    db.flush()
+
+    remaining = db.scalars(
+        select(CategoryParticipant)
+        .where(CategoryParticipant.category_id == category_id)
+        .order_by(CategoryParticipant.seed_order, CategoryParticipant.id)
+    ).all()
+    for seed_order, remaining_link in enumerate(remaining, 1):
+        remaining_link.seed_order = seed_order
+
+    audit(
+        db,
+        category.tournament_id,
+        "CATEGORY_PARTICIPANT_REMOVED",
+        "category_participant",
+        link_id,
+        payload={
+            "category_id": category_id,
+            "participant_id": participant_id,
+            "bracket_reset": had_matches,
+        },
+    )
+    db.commit()
+
+    await _broadcast(
+        request,
+        {
+            "type": "category_changed",
+            "category_id": category_id,
+            "tournament_id": category.tournament_id,
+        },
+    )
+    await _broadcast(
+        request,
+        {
+            "type": "bracket_changed",
+            "category_id": category_id,
+            "tournament_id": category.tournament_id,
+        },
+    )
+    await _broadcast(
+        request,
+        {"type": "schedule_changed", "tournament_id": category.tournament_id},
+    )
+    return {"ok": True, "bracket_reset": had_matches}
 
 
 @router.put("/categories/{category_id}/seed")

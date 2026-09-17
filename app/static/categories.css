@@ -337,6 +337,30 @@
   min-width:16px;
   text-align:center
 }
+.category-roster-participant {
+  gap:8px
+}
+.category-roster-person {
+  min-width:0
+}
+.category-roster-person b,.category-roster-person span {
+  display:block
+}
+.category-roster-person b {
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap
+}
+.category-roster-person span {
+  margin-top:2px;
+  font-size:11px
+}
+.category-roster-actions {
+  display:flex;
+  align-items:center;
+  gap:5px;
+  flex:0 0 auto
+}
 @media(max-width:1180px) {
   .category-workspace {
     grid-template-columns:250px minmax(0,1fr)

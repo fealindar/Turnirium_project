@@ -159,19 +159,22 @@ function renderOverview(){
     }).join('')||'<div class="card">Нет площадок.</div>'}</div>
     `;
 }
-function participantCategoriesHtml(categories) {
+function participantCategoriesHtml(participantId, categories) {
   if (!categories.length) {
     return '<div class="participant-category-empty">Участник пока не заявлен ни в одну категорию.</div>';
   }
   return `<div class="participant-category-list">${categories.map(category => `
     <div class="participant-category-item">
-      <div>
+      <div class="participant-category-main">
         <b>${esc(category.name)}</b>
         <small>${esc(formatName(category.format))}${category.group_name ? ` · Группа ${esc(category.group_name)}` : ''}</small>
       </div>
       <div class="participant-category-state">
-        ${category.disqualified ? '<span class="pill warn">DSQ</span>' : ''}
-        <span class="pill ${category.status === 'completed' ? 'muted-pill' : ''}">${category.status === 'completed' ? 'Завершена' : 'Участвует'}</span>
+        <div class="participant-category-pills">
+          ${category.disqualified ? '<span class="pill warn">DSQ</span>' : ''}
+          <span class="pill ${category.status === 'completed' ? 'muted-pill' : ''}">${category.status === 'completed' ? 'Завершена' : 'Участвует'}</span>
+        </div>
+        <button type="button" class="small danger ghost participant-category-remove" data-remove-participant-category="${category.category_id}" data-participant-id="${participantId}" ${category.can_remove ? '' : 'disabled title="Недоступно после начала боёв категории"'}>Исключить</button>
       </div>
     </div>`).join('')}</div>`;
 }
@@ -180,7 +183,7 @@ function participantExtraHtml(participant, categories) {
   return `<div class="participant-extra-grid">
     <section class="participant-extra-section">
       <div class="participant-extra-title">Категории</div>
-      ${participantCategoriesHtml(categories)}
+      ${participantCategoriesHtml(participant.id, categories)}
     </section>
     <section class="participant-extra-section participant-admin-note">
       <div class="participant-extra-title">Организационные данные</div>
@@ -252,6 +255,21 @@ async function loadParticipantExtra(participantId) {
   currentBody?.querySelector(`[data-save-participant-details="${participantId}"]`)?.addEventListener('click', () => saveParticipantDetails(participantId));
   const paid = currentBody?.querySelector(`[data-participant-paid="${participantId}"]`);
   if (paid) paid.onchange = () => saveParticipantDetails(participantId);
+  currentBody?.querySelectorAll('[data-remove-participant-category]').forEach(button => {
+    button.onclick = async () => {
+      const categoryId = Number(button.dataset.removeParticipantCategory);
+      const category = (adminUiState.participantCategories.get(participantId) || []).find(item => item.category_id === categoryId);
+      if (!category?.can_remove) return;
+      if (!confirm(`Исключить участника только из категории «${category.name}»? Если сетка уже сформирована, она будет сброшена.`)) return;
+      try {
+        const result = await api(`/api/categories/${categoryId}/participants/${participantId}`, {method:'DELETE'});
+        adminUiState.participantCategories.delete(participantId);
+        await refreshAdminData(true);
+        renderParticipants();
+        toast(result.bracket_reset ? 'Участник исключён. Сетка категории сброшена.' : 'Участник исключён из категории');
+      } catch (error) { toast(error.message, true); }
+    };
+  });
 }
 
 async function toggleParticipantCategories(button) {

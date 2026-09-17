@@ -217,3 +217,143 @@ def test_legacy_participant_import_does_not_clear_payment_and_comment() -> None:
         assert participant is not None
         assert participant.fee_paid is True
         assert participant.comment == "Сохраняемая заметка"
+
+
+def test_category_participant_can_be_removed_before_first_fight_and_resets_prepared_matches() -> None:
+    reset_db()
+    with SessionLocal() as db:
+        tournament = Tournament(name="Исключение до старта")
+        db.add(tournament)
+        db.flush()
+        category = Category(tournament_id=tournament.id, name="Сабля", format="knockout", status="ready")
+        db.add(category)
+        db.flush()
+        first = Participant(tournament_id=tournament.id, last_name="Первый")
+        second = Participant(tournament_id=tournament.id, last_name="Второй")
+        db.add_all([first, second])
+        db.flush()
+        first_link = CategoryParticipant(category_id=category.id, participant_id=first.id, seed_order=1)
+        second_link = CategoryParticipant(category_id=category.id, participant_id=second.id, seed_order=2)
+        db.add_all([first_link, second_link])
+        db.flush()
+        db.add(
+            Match(
+                category_id=category.id,
+                stage="knockout",
+                round_no=1,
+                match_no=1,
+                red_cp_id=first_link.id,
+                blue_cp_id=second_link.id,
+                status="ready",
+            )
+        )
+        db.commit()
+        category_id = category.id
+        first_id = first.id
+
+    with TestClient(app) as client:
+        response = client.delete(f"/api/categories/{category_id}/participants/{first_id}")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["bracket_reset"] is True
+    with SessionLocal() as db:
+        assert db.scalar(
+            select(CategoryParticipant).where(
+                CategoryParticipant.category_id == category_id,
+                CategoryParticipant.participant_id == first_id,
+            )
+        ) is None
+        assert db.scalar(select(Match).where(Match.category_id == category_id)) is None
+        category = db.get(Category, category_id)
+        assert category is not None
+        assert category.status == "draft"
+        assert db.get(Participant, first_id) is not None
+
+
+def test_category_participant_removal_is_blocked_after_real_fight_started() -> None:
+    reset_db()
+    with SessionLocal() as db:
+        tournament = Tournament(name="Исключение после старта")
+        db.add(tournament)
+        db.flush()
+        category = Category(tournament_id=tournament.id, name="Меч", format="round_robin", status="ready")
+        db.add(category)
+        db.flush()
+        first = Participant(tournament_id=tournament.id, last_name="Первый")
+        second = Participant(tournament_id=tournament.id, last_name="Второй")
+        db.add_all([first, second])
+        db.flush()
+        first_link = CategoryParticipant(category_id=category.id, participant_id=first.id, seed_order=1)
+        second_link = CategoryParticipant(category_id=category.id, participant_id=second.id, seed_order=2)
+        db.add_all([first_link, second_link])
+        db.flush()
+        db.add(
+            Match(
+                category_id=category.id,
+                stage="round_robin",
+                round_no=1,
+                match_no=1,
+                red_cp_id=first_link.id,
+                blue_cp_id=second_link.id,
+                status="in_progress",
+            )
+        )
+        db.commit()
+        category_id = category.id
+        first_id = first.id
+
+    with TestClient(app) as client:
+        response = client.delete(f"/api/categories/{category_id}/participants/{first_id}")
+
+    assert response.status_code == 409
+    assert "после начала" in response.json()["detail"].lower()
+    with SessionLocal() as db:
+        assert db.scalar(
+            select(CategoryParticipant).where(
+                CategoryParticipant.category_id == category_id,
+                CategoryParticipant.participant_id == first_id,
+            )
+        ) is not None
+
+
+def test_participant_card_reports_category_removal_availability() -> None:
+    reset_db()
+    with SessionLocal() as db:
+        tournament = Tournament(name="Карточка участника")
+        db.add(tournament)
+        db.flush()
+        open_category = Category(tournament_id=tournament.id, name="До старта", format="knockout")
+        started_category = Category(tournament_id=tournament.id, name="После старта", format="knockout", status="ready")
+        db.add_all([open_category, started_category])
+        db.flush()
+        participant = Participant(tournament_id=tournament.id, last_name="Боец")
+        opponent = Participant(tournament_id=tournament.id, last_name="Соперник")
+        db.add_all([participant, opponent])
+        db.flush()
+        open_link = CategoryParticipant(category_id=open_category.id, participant_id=participant.id)
+        started_link = CategoryParticipant(category_id=started_category.id, participant_id=participant.id)
+        opponent_link = CategoryParticipant(category_id=started_category.id, participant_id=opponent.id)
+        db.add_all([open_link, started_link, opponent_link])
+        db.flush()
+        db.add(
+            Match(
+                category_id=started_category.id,
+                stage="knockout",
+                round_no=1,
+                match_no=1,
+                red_cp_id=started_link.id,
+                blue_cp_id=opponent_link.id,
+                status="finished",
+                result_reason="POINTS",
+            )
+        )
+        db.commit()
+        participant_id = participant.id
+
+    with TestClient(app) as client:
+        response = client.get(f"/api/participants/{participant_id}/categories")
+
+    assert response.status_code == 200, response.text
+    by_name = {row["name"]: row for row in response.json()}
+    assert by_name["До старта"]["can_remove"] is True
+    assert by_name["После старта"]["can_remove"] is False
