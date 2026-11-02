@@ -119,6 +119,7 @@ def test_new_category_uses_fencing_friendly_default_scoring():
         assert r.status_code == 200, r.text
         saved = r.json()
         assert saved["score_buttons"] == [
+            {"label": "-2", "delta": -2},
             {"label": "-1", "delta": -1},
             {"label": "+1", "delta": 1},
             {"label": "+2", "delta": 2},

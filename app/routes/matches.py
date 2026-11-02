@@ -21,7 +21,7 @@ from ..engine import (
 )
 from ..models import Match
 from .common import _broadcast, _get_or_404
-from .schemas import FinishIn, MatchCorrectionIn, ScoreIn, SideIn, TimerSetIn
+from .schemas import FinishIn, MatchCorrectionIn, ScoreIn, SideIn, TimerAdjustIn, TimerSetIn
 
 router = APIRouter()
 
@@ -354,5 +354,36 @@ async def timer_set(
     match.version += 1
     db.commit()
 
+    await _broadcast_match_change(request, match, "timer_changed")
+    return match_dict(match)
+
+
+@router.post("/matches/{match_id}/timer/adjust")
+async def timer_adjust(
+    match_id: int,
+    data: TimerAdjustIn,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Сдвигает таймер на ±10 секунд, не ставя идущий бой на паузу.
+
+    При изменении времени текущая задача истечения инвалидируется ревизией,
+    новая привязывается к тому же поколению БД. Нулевое время останавливает
+    таймер без отрицательного остатка.
+    """
+    match = _get_or_404(db, Match, match_id, "Поединок")
+    _ensure_match_can_start(match)
+    remaining = min(86_400_000, max(0, effective_remaining_ms(match) + data.seconds * 1000))
+    running = match.timer_running and remaining > 0
+    match.remaining_ms = remaining
+    match.timer_running = running
+    match.timer_started_at = datetime.now(timezone.utc) if running else None
+    match.timer_revision += 1
+    match.version += 1
+    revision = match.timer_revision
+    generation = current_db_generation()
+    db.commit()
+    if running:
+        asyncio.create_task(_timer_expiry(request.app, match.id, revision, remaining, generation))
     await _broadcast_match_change(request, match, "timer_changed")
     return match_dict(match)

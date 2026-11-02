@@ -5,7 +5,14 @@ function timerNow(){return timerView.running?Math.max(0,timerView.remaining-(per
 function startTimerPainter(selector){clearInterval(window.__timerPaint);window.__timerPaint=setInterval(()=>{const el=$(selector);if(el)el.textContent=fmtTime(timerNow());},100);}
 async function initSecretary(areaId){
   document.body.className='secretary'; ensureBranding();
-  $('#app').innerHTML=`<div class="topbar secretary-topbar"><div class="brand secretary-brand">${brandIconHtml()}<div><div class="brand-title">${esc(BRANDING.app_name)}</div><div class="brand-sub" id="areaTitle">Площадка</div></div></div><label class="board-mirror-control" for="boardMirrorToggle" title="Меняет левую и правую стороны только на зрительском табло"><input type="checkbox" id="boardMirrorToggle" role="switch"><span class="board-mirror-track" aria-hidden="true"></span><span>Отзеркалить табло</span></label><nav class="secretary-topbar-links"><a href="/admin">Организатор</a><a href="/board/${areaId}" target="_blank">Табло ↗</a></nav></div><div class="container" id="secretaryContent"></div>`;
+  $('#app').innerHTML=`<div class="topbar secretary-topbar"><div class="brand secretary-brand">${brandIconHtml()}<div><div class="brand-title">${esc(BRANDING.app_name)}</div><div class="brand-sub" id="areaTitle">Площадка</div></div></div><label class="board-mirror-control" for="boardMirrorToggle" title="Меняет левую и правую стороны только на зрительском табло"><input type="checkbox" id="boardMirrorToggle" role="switch"><span class="board-mirror-track" aria-hidden="true"></span><span>Отзеркалить табло</span></label><nav class="secretary-topbar-links" aria-label="Навигация секретаря"><button class="secretary-nav-button" id="secretaryHotkeysButton" type="button">Горячие клавиши</button><a class="secretary-nav-button" href="/admin">Организатор</a><a class="secretary-nav-button" href="/board/${areaId}" target="_blank" rel="noopener">Табло ↗</a></nav></div><div class="container" id="secretaryContent"></div>`;
+  // Один обработчик на всё время жизни вкладки, не привязанный к обновлениям по WebSocket.
+  if (window.__secretaryHotkeys) window.__secretaryHotkeys.destroy();
+  if (window.SecretaryHotkeys) {
+    window.__secretaryHotkeys = new window.SecretaryHotkeys(secretaryShortcutAction);
+    $('#secretaryHotkeysButton').onclick = () =>
+      window.__secretaryHotkeys.openPanel($('#secretaryHotkeysButton'));
+  }
   const mirrorToggle=$('#boardMirrorToggle');
   mirrorToggle.addEventListener('change',async()=>{
     const desired=mirrorToggle.checked;
@@ -27,6 +34,36 @@ async function initSecretary(areaId){
   await load(); wsConnect(e=>{if(!e.area_id||Number(e.area_id)===Number(areaId)||['schedule_changed','bracket_changed'].includes(e.type)) load();});
   setInterval(load,5000);
 }
+/** Выполняет ту же команду, что и кнопка активного боя; без параллельной логики счёта. */
+function secretaryShortcutAction(action) {
+  const scoreActions = {
+    redPlus1:['red',1], redPlus2:['red',2], redMinus1:['red',-1], redMinus2:['red',-2],
+    bluePlus1:['blue',1], bluePlus2:['blue',2], blueMinus1:['blue',-1], blueMinus2:['blue',-2]
+  };
+  const score = scoreActions[action];
+  if (score) {
+    const button = [...$$('#secretaryContent [data-score-side]')].find(btn =>
+      btn.dataset.scoreSide === score[0] && Number(btn.dataset.delta) === score[1] && !btn.disabled);
+    if (button) { button.click(); return true; }
+    // Баллы регулируются правилами категории, дополнительные значения не подменяем.
+    toast(`Изменение счёта ${score[1]>0?'+':''}${score[1]} не предусмотрено правилами категории`, true);
+    return true;
+  }
+  const selectors = {timerToggle:'#toggleTimer', undo:'#undoBtn', next:'#nextFight'};
+  if (selectors[action]) {
+    const button = $(selectors[action]);
+    if (!button || button.disabled) return false;
+    button.click(); return true;
+  }
+  if (action === 'timerPlus' || action === 'timerMinus') {
+    const match = secretaryActiveMatch;
+    if (!match || ['finished','cancelled','blocked','staged'].includes(match.status)) return false;
+    simplePost(`/api/matches/${match.id}/timer/adjust`, {seconds:action==='timerPlus' ? 10 : -10});
+    return true;
+  }
+  return false;
+}
+let secretaryActiveMatch=null;
 let secretaryInfoTab='queue';
 function secretaryFinishPayload(match) {
   const penalties=match.pending_penalties || {};
@@ -70,6 +107,7 @@ function secretaryStageLabel(match, categoryMatches=[]) {
 
 function renderSecretary(st,areaId,categoryMatches=[]){
   $('#areaTitle').textContent=st.area.name; const m=st.current;
+  secretaryActiveMatch=m;
   if(!m){$('#secretaryContent').innerHTML=`<div class="empty-state compact"><h2>Нет выбранного поединка</h2><p>Если бой уже назначен на площадку, выберите следующий.</p><button id="nextFight" class="primary">Выбрать следующий</button></div>${secretaryInfoTabsHtml(st,categoryMatches,null)}`;$('#nextFight').onclick=()=>nextFight(areaId);bindSecretaryInfoTabs();return;}
   const hasPendingPenalties = Object.keys(m.pending_penalties || {}).length > 0;
   const buttons=(side)=>m.score_buttons.map(b=>`<button data-score-side="${side}" data-delta="${b.delta}" ${m.status==='finished'?'disabled':''}>${esc(b.label)}</button>`).join('');

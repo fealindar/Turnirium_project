@@ -70,6 +70,7 @@ class CategoryIn(BaseModel):
     match_duration_sec: int = Field(default=120, ge=10, le=3600)
     timer_warning_sec: int = Field(default=10, ge=0, le=3600)
     score_buttons: list[dict[str, Any]] = Field(default_factory=lambda: [
+        {"label": "-2", "delta": -2},
         {"label": "-1", "delta": -1},
         {"label": "+1", "delta": 1},
         {"label": "+2", "delta": 2},
@@ -253,6 +254,12 @@ class BracketLayoutIn(BaseModel):
 
 class TimerSetIn(BaseModel):
     seconds: int = Field(ge=0, le=86400)
+
+
+class TimerAdjustIn(BaseModel):
+    """Изменение времени секретарём, в секундах; без остановки таймера."""
+
+    seconds: Literal[-10, 10]
 
 
 class DatabaseSelectIn(BaseModel):

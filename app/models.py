@@ -8,7 +8,8 @@ from .db import Base
 
 
 DEFAULT_SCORE_BUTTONS_JSON = (
-    '[{"label":"-1","delta":-1},{"label":"+1","delta":1},'
+    '[{"label":"-2","delta":-2},{"label":"-1","delta":-1},'
+    '{"label":"+1","delta":1},'
     '{"label":"+2","delta":2},{"label":"+3","delta":3}]'
 )
 DEFAULT_WARNING_RULES_JSON = (

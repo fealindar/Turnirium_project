@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_hotfix_keeps_122_and_never_serves_unversioned_frontend():
-    assert APP_VERSION == "1.2.2"
+    assert APP_VERSION == "1.2.3"
     with TestClient(app) as client:
         for page in ("/mat/1", "/board/1", "/admin"):
             response = client.get(page)
