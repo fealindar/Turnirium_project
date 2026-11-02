@@ -5,8 +5,25 @@ function timerNow(){return timerView.running?Math.max(0,timerView.remaining-(per
 function startTimerPainter(selector){clearInterval(window.__timerPaint);window.__timerPaint=setInterval(()=>{const el=$(selector);if(el)el.textContent=fmtTime(timerNow());},100);}
 async function initSecretary(areaId){
   document.body.className='secretary'; ensureBranding();
-  $('#app').innerHTML=`<div class="topbar"><div class="brand secretary-brand">${brandIconHtml()}<div><div class="brand-title">${esc(BRANDING.app_name)}</div><div class="brand-sub" id="areaTitle">Площадка</div></div></div><a href="/admin">Организатор</a><a href="/board/${areaId}" target="_blank">Табло ↗</a></div><div class="container" id="secretaryContent"></div>`;
-  const load=async()=>{try{const st=await api(`/api/areas/${areaId}/state`);const cm=st.current?await api(`/api/categories/${st.current.category_id}/matches`):[];renderSecretary(st,areaId,cm);setTimerSnapshot(st.current);startTimerPainter('#fightTimer')}catch(e){toast(e.message,true)}};
+  $('#app').innerHTML=`<div class="topbar secretary-topbar"><div class="brand secretary-brand">${brandIconHtml()}<div><div class="brand-title">${esc(BRANDING.app_name)}</div><div class="brand-sub" id="areaTitle">Площадка</div></div></div><label class="board-mirror-control" for="boardMirrorToggle" title="Меняет левую и правую стороны только на зрительском табло"><input type="checkbox" id="boardMirrorToggle" role="switch"><span class="board-mirror-track" aria-hidden="true"></span><span>Отзеркалить табло</span></label><nav class="secretary-topbar-links"><a href="/admin">Организатор</a><a href="/board/${areaId}" target="_blank">Табло ↗</a></nav></div><div class="container" id="secretaryContent"></div>`;
+  const mirrorToggle=$('#boardMirrorToggle');
+  mirrorToggle.addEventListener('change',async()=>{
+    const desired=mirrorToggle.checked;
+    mirrorToggle.disabled=true;
+    try {
+      const result=await api(`/api/areas/${areaId}/board-mirror`,{
+        method:'PUT',body:JSON.stringify({mirrored:desired})
+      });
+      mirrorToggle.checked=!!result.board_mirrored;
+      toast(mirrorToggle.checked?'Табло отзеркалено':'Обычная ориентация табло');
+    } catch(error) {
+      mirrorToggle.checked=!desired;
+      toast(error.message,true);
+    } finally {
+      mirrorToggle.disabled=false;
+    }
+  });
+  const load=async()=>{try{const st=await api(`/api/areas/${areaId}/state`,{cache:'no-store'});if(!mirrorToggle.disabled)mirrorToggle.checked=!!st.area.board_mirrored;const cm=st.current?await api(`/api/categories/${st.current.category_id}/matches`):[];renderSecretary(st,areaId,cm);setTimerSnapshot(st.current);startTimerPainter('#fightTimer')}catch(e){toast(e.message,true)}};
   await load(); wsConnect(e=>{if(!e.area_id||Number(e.area_id)===Number(areaId)||['schedule_changed','bracket_changed'].includes(e.type)) load();});
   setInterval(load,5000);
 }

@@ -13,7 +13,7 @@ from ..engine import audit
 from ..exporter import write_json_export, write_pdf_export
 from ..models import Area, Category, Match, Tournament
 from .common import _broadcast, _get_or_404
-from .schemas import AreaIn, TournamentIn
+from .schemas import AreaIn, BoardMirrorIn, TournamentIn
 
 router = APIRouter()
 
@@ -194,6 +194,32 @@ async def create_area(
         {"type": "areas_changed", "tournament_id": tournament_id},
     )
     return {"id": area.id}
+
+
+@router.put("/areas/{area_id}/board-mirror")
+async def update_area_board_mirror(
+    area_id: int,
+    data: BoardMirrorIn,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Меняет только ориентацию зрительского табло конкретной площадки."""
+
+    area = _get_or_404(db, Area, area_id, "Площадка")
+    previous = bool(area.board_mirrored)
+    if previous != data.mirrored:
+        area.board_mirrored = data.mirrored
+        audit(
+            db, area.tournament_id, "AREA_BOARD_MIRROR_CHANGED", "area", area.id,
+            payload={"previous": previous, "mirrored": data.mirrored},
+        )
+        db.commit()
+        # Секретарь и табло обновят состояние без перезагрузки и остановки таймера.
+        await _broadcast(request, {
+            "type": "area_changed", "tournament_id": area.tournament_id,
+            "area_id": area.id, "board_mirrored": data.mirrored,
+        })
+    return {"area_id": area.id, "board_mirrored": bool(area.board_mirrored)}
 
 
 @router.post("/areas/{area_id}/reset")

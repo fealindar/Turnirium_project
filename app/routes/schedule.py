@@ -534,7 +534,7 @@ async def select_next(area_id: int, request: Request, db: Session = Depends(get_
 
 
 @router.get("/areas/{area_id}/state")
-def area_state(area_id: int, db: Session = Depends(get_db)):
+def area_state(area_id: int, request: Request, db: Session = Depends(get_db)):
     """Возвращает текущий бой и ближайшие позиции очереди секретарю площадки."""
 
     area = _get_or_404(db, Area, area_id, "Площадка")
@@ -551,7 +551,8 @@ def area_state(area_id: int, db: Session = Depends(get_db)):
         .order_by(Match.queue_order, Match.id)
     ).all()
     return {
-        "area": {"id": area.id, "name": area.name},
+        "area": {"id": area.id, "name": area.name, "board_mirrored": bool(area.board_mirrored)},
+        "frontend_revision": getattr(request.app.state, "frontend_revision", None),
         "current": match_dict(current) if current else None,
         "next": match_dict(queue[0]) if queue else None,
         "following": match_dict(queue[1]) if len(queue) > 1 else None,

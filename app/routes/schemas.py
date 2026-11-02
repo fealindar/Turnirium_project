@@ -47,6 +47,11 @@ class AreaIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
 
 
+class BoardMirrorIn(BaseModel):
+    # strict=True исключает случайное включение от строк и чисел.
+    mirrored: bool = Field(strict=True)
+
+
 class ParticipantIn(BaseModel):
     first_name: str = Field(default="", max_length=100)
     last_name: str = Field(min_length=1, max_length=100)

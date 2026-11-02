@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import re
 import asyncio
 import logging
 import os
@@ -15,7 +17,7 @@ from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from .api import router
@@ -58,6 +60,33 @@ app.state.server_started_at = None
 app.include_router(router)
 
 STATIC_DIR = resource_dir()
+
+
+def _frontend_revision() -> str:
+    """Хеш реальных ресурсов: хотфикс с прежней версией не отдаёт старый JS."""
+    digest = hashlib.sha256()
+    for file in sorted((*STATIC_DIR.glob("*.js"), *STATIC_DIR.glob("*.css"))):
+        digest.update(file.name.encode("utf-8"))
+        digest.update(file.read_bytes())
+    return digest.hexdigest()[:16]
+
+
+FRONTEND_REVISION = _frontend_revision()
+app.state.frontend_revision = FRONTEND_REVISION
+_ASSET_URL = re.compile(r'((?:href|src)="/static/[^"?]+\.(?:css|js))"')
+
+
+def _spa_html() -> str:
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    html = _ASSET_URL.sub(lambda match: f'{match.group(1)}?v={FRONTEND_REVISION}"', html)
+    return html.replace(
+        "</head>",
+        f'<script>window.TURNIRIUM_FRONTEND_REVISION="{FRONTEND_REVISION}";</script>\n</head>',
+        1,
+    )
+
+
+SPA_HTML = _spa_html()
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
@@ -84,9 +113,9 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
 @app.get("/{path:path}")
 def spa(path: str):
-    """Возвращает SPA для всех клиентских маршрутов."""
+    """SPA с привязанными к сборке ресурсами, включая хотфиксы одной версии."""
 
-    return FileResponse(STATIC_DIR / "index.html")
+    return HTMLResponse(SPA_HTML, headers={"Cache-Control": "no-store"})
 
 
 def open_browser_later(port: int) -> None:

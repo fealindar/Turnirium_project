@@ -165,6 +165,10 @@ def _initialize_schema(bind) -> None:
         if "preferred_match_gap" not in tcols:
             conn.execute(text("ALTER TABLE tournaments ADD COLUMN preferred_match_gap INTEGER NOT NULL DEFAULT 1"))
 
+        acols = {c["name"] for c in inspector.get_columns("areas")}
+        if "board_mirrored" not in acols:
+            conn.execute(text("ALTER TABLE areas ADD COLUMN board_mirrored BOOLEAN NOT NULL DEFAULT 0"))
+
         ccols = {c["name"] for c in inspector.get_columns("categories")}
         if "completed_at" not in ccols:
             conn.execute(text("ALTER TABLE categories ADD COLUMN completed_at DATETIME"))

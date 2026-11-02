@@ -136,6 +136,8 @@ class Area(Base):
     tournament_id: Mapped[int] = mapped_column(ForeignKey("tournaments.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(120))
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Визуальная ориентация зрительского табло; стороны боя в БД неизменны.
+    board_mirrored: Mapped[bool] = mapped_column(Boolean, default=False)
     current_match_id: Mapped[int | None] = mapped_column(ForeignKey("matches.id", ondelete="SET NULL"), nullable=True)
 
     tournament = relationship("Tournament", back_populates="areas")
