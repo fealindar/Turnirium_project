@@ -6,7 +6,7 @@ Turnirium — локальное приложение для проведени�
 
 При использовании приложения просьба сохранять ссылку на клуб разработчика: Рейд, г. Донецк - https://vk.ru/hema_dn
 Пожелания, предложения и обратную связь можно отправлять туда же.
-Свежие версии будут храниться в  https://github.com/fealindar/Turnirium_project/tree/master/dist
+Свежие версии будут храниться в https://github.com/fealindar/Turnirium_project/releases
 
 ## Что умеет
 
