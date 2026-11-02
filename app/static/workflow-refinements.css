@@ -7,6 +7,9 @@
   display:flex;
   align-items:center;
   gap:6px;
+  max-width:calc(100vw - 24px);
+  flex-wrap:wrap;
+  justify-content:flex-end;
   padding:5px 9px;
   border-radius:9px;
   background:rgba(15,23,42,.68);
@@ -28,9 +31,8 @@
   opacity:1;
   color:#fff
 }
-.brand-sep {
-  opacity:.55
-}
+.brand-sep { opacity:.55; }
+.brand-version { font-variant-numeric:tabular-nums; white-space:nowrap; opacity:.92; }
 .admin-page .app-brand-footer,.secretary .app-brand-footer {
   background:rgba(255,255,255,.88);
   color:#536273;

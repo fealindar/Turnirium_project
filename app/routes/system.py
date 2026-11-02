@@ -71,4 +71,5 @@ async def select_database(data: DatabaseSelectIn, request: Request):
 
 @router.get("/branding")
 def branding_info():
-    return load_branding()
+    # Версия выдаётся из единственного источника app.version, без изменения branding.json.
+    return {**load_branding(), "version": APP_VERSION}

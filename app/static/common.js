@@ -2,17 +2,27 @@ const $ = (s, root=document) => root.querySelector(s);
 const $$ = (s, root=document) => [...root.querySelectorAll(s)];
 const esc = (v='') => String(v ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 
-let BRANDING={app_name:'Turnirium',developer_club_name:'',developer_club_url:'',show_footer_branding:true};
+let BRANDING={app_name:'Turnirium',developer_club_name:'',developer_club_url:'',show_footer_branding:true,version:''};
 function brandIconHtml(extraClass=''){return `<img class="brand-icon ${extraClass}" src="/static/turnirium_icon.png" alt="" aria-hidden="true">`}
 function safeBrandUrl(){const u=(BRANDING.developer_club_url||'').trim();return /^https?:\/\//i.test(u)?u:''}
+/** Поддерживает уведомление строго над плашкой, независимо от длины названия клуба. */
+function updateToastClearance(){
+  const footer=$('#brandingFooter');
+  const offset=footer ? Math.ceil(window.innerHeight-footer.getBoundingClientRect().top+16) : 16;
+  document.documentElement.style.setProperty('--toast-bottom-clearance',`${Math.max(16,offset)}px`);
+}
 function ensureBranding(){
   document.title=BRANDING.app_name||'Turnirium';
   let el=$('#brandingFooter');
-  if(!BRANDING.show_footer_branding || !BRANDING.developer_club_name){if(el)el.remove();return;}
+  if(!BRANDING.show_footer_branding){if(el)el.remove();updateToastClearance();return;}
   if(!el){el=document.createElement('div');el.id='brandingFooter';el.className='app-brand-footer';document.body.appendChild(el)}
-  const url=safeBrandUrl(),name=esc(BRANDING.developer_club_name);
-  el.innerHTML=`<span>${esc(BRANDING.app_name)}</span><span class="brand-sep">·</span>${url?`<a href="${esc(url)}" target="_blank" rel="noopener">${name}</a>`:`<span>${name}</span>`}`;
+  const url=safeBrandUrl(),name=esc(BRANDING.developer_club_name||'');
+  const version=BRANDING.version?`<span class="brand-version">v${esc(BRANDING.version)}</span>`:'';
+  const club=name?`<span class="brand-sep" aria-hidden="true">·</span>${url?`<a href="${esc(url)}" target="_blank" rel="noopener">${name}</a>`:`<span>${name}</span>`}`:'';
+  el.innerHTML=`<span>${esc(BRANDING.app_name)}</span>${version}${club}`;
+  updateToastClearance();
 }
+window.addEventListener('resize',updateToastClearance);
 async function loadBranding(){try{BRANDING=await api('/api/branding')}catch{}ensureBranding()}
 
 async function api(path, options={}) {
@@ -48,6 +58,7 @@ function downloadUrl(url){
   const a=document.createElement('a');a.href=url;a.download='';a.style.display='none';document.body.appendChild(a);a.click();setTimeout(()=>a.remove(),1000);
 }
 function toast(msg, error=false) {
+  updateToastClearance();
   const el = $('#toast'); el.textContent = msg; el.className = `toast show${error?' error':''}`;
   clearTimeout(window.__toast); window.__toast=setTimeout(()=>el.className='toast', 3200);
 }
