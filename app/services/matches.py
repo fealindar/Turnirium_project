@@ -11,6 +11,8 @@ from ..models import Category, CategoryParticipant, Match, MatchEvent, Participa
 from .brackets import _maybe_activate_or_bye, _propagate_loser_to_third_place, _third_place_match, propagate_winner
 from .common import _delete_match_rows, _real_match_started, audit, effective_remaining_ms, json_load, match_dict, now_utc
 from .scheduling import auto_assign_ready_matches
+from .match_penalties import pending_penalties
+from .match_results import DOUBLE_LOSS_REASONS, double_loss_reason
 
 VALID_RESULT_REASONS = {
     "POINTS",
@@ -19,16 +21,17 @@ VALID_RESULT_REASONS = {
     "WARNING_FORFEIT",
     "DISQUALIFICATION",
     "WITHDRAWAL",
+    *DOUBLE_LOSS_REASONS,
 }
 
 
 def _validate_result_reason(match: Match, reason: str) -> bool:
-    """Проверяет причину результата и возвращает признак ничьей."""
+    """Проверяет причину и возвращает признак результата без победителя."""
     if reason not in VALID_RESULT_REASONS:
         raise ValueError("Неизвестная причина завершения поединка")
     if reason == "DRAW" and match.stage not in ("group", "swiss", "round_robin"):
         raise ValueError("Ничья разрешена только в группах, швейцарской системе и формате «все со всеми»")
-    return reason == "DRAW"
+    return reason == "DRAW" or reason in DOUBLE_LOSS_REASONS
 
 
 def _finish_match(
@@ -40,16 +43,28 @@ def _finish_match(
     commit: bool,
 ) -> Match:
     """Завершает бой внутри текущей транзакции."""
+    if match.category.status == "completed" or match.status == "cancelled":
+        raise ValueError("Категория завершена или поединок отменён")
     if match.status == "staged":
         raise ValueError("Этап еще не начат")
     if match.status == "finished":
         raise ValueError("Поединок уже завершен")
-    is_draw = _validate_result_reason(match, reason)
+    without_winner = _validate_result_reason(match, reason)
     if match.red_cp_id is None or match.blue_cp_id is None:
         raise ValueError("Нельзя вручную завершить бой без двух участников")
-    if is_draw:
-        if match.red_cp_id is None or match.blue_cp_id is None:
-            raise ValueError("Ничья невозможна в поединке с BYE")
+    penalties = pending_penalties(match)
+    if len(penalties) == 2:
+        expected = double_loss_reason(penalties)
+        if winner_cp_id is not None or reason not in {expected, "DOUBLE_FORFEIT"}:
+            raise ValueError("Обе стороны получили поражение: выберите обоюдный исход без победителя")
+    elif len(penalties) == 1:
+        side, required_reason = next(iter(penalties.items()))
+        winner = match.blue_cp_id if side == "red" else match.red_cp_id
+        if reason != required_reason or winner_cp_id != winner:
+            raise ValueError("Завершите бой с учётом назначенной санкции")
+    elif reason in DOUBLE_LOSS_REASONS:
+        raise ValueError("Обоюдное поражение возможно только при санкциях обеим сторонам")
+    elif without_winner:
         winner_cp_id = None
     elif winner_cp_id is None or winner_cp_id not in (match.red_cp_id, match.blue_cp_id):
         raise ValueError("Победитель не является участником этого поединка")
@@ -84,8 +99,28 @@ def finish_match(
     winner_cp_id: int | None,
     reason: str = "POINTS",
 ) -> Match:
-    """Завершает бой и фиксирует транзакцию для внешнего вызывающего кода."""
-    return _finish_match(db, match, winner_cp_id, reason, commit=True)
+    """Фиксирует санкции и закрывает последующие бои дисквалифицированных."""
+    _finish_match(db, match, winner_cp_id, reason, commit=False)
+    disqualified_ids = {cp.id for cp in (match.red_cp, match.blue_cp) if cp and cp.disqualified}
+    if disqualified_ids:
+        future = db.scalars(select(Match).where(
+            Match.category_id == match.category_id,
+            Match.id != match.id,
+            Match.status.in_(["ready", "pending"]),
+        )).all()
+        for other in future:
+            if not other.red_cp_id or not other.blue_cp_id:
+                continue
+            losing = disqualified_ids & {other.red_cp_id, other.blue_cp_id}
+            if not losing:
+                continue
+            if len(losing) == 2:
+                _finish_match(db, other, None, "DOUBLE_FORFEIT", commit=False)
+            else:
+                winner = other.blue_cp_id if other.red_cp_id in losing else other.red_cp_id
+                _finish_match(db, other, winner, "DISQUALIFICATION", commit=False)
+    db.commit()
+    return match
 
 
 def _dependent_bracket_matches(db: Session, match: Match) -> list[Match]:
@@ -240,12 +275,10 @@ def correct_finished_match(
         raise ValueError("Категория завершена. Сначала верните ее в активные")
     if red_warnings < 0 or blue_warnings < 0:
         raise ValueError("Количество предупреждений не может быть отрицательным")
-    is_draw = _validate_result_reason(match, reason)
+    without_winner = _validate_result_reason(match, reason)
     if match.red_cp_id is None or match.blue_cp_id is None:
         raise ValueError("Нельзя корректировать результат боя без двух участников")
-    if is_draw:
-        if not match.red_cp_id or not match.blue_cp_id:
-            raise ValueError("Ничья невозможна в поединке с BYE")
+    if without_winner:
         winner_cp_id = None
     elif winner_cp_id is None or winner_cp_id not in (match.red_cp_id, match.blue_cp_id):
         raise ValueError("Победитель не является участником этого поединка")
@@ -342,6 +375,8 @@ def correct_finished_match(
     return {"match": match_dict(match), "notes": notes}
 
 def apply_score(db: Session, match: Match, side: str, delta: int) -> Match:
+    if match.category.status == "completed" or match.status == "cancelled":
+        raise ValueError("Категория завершена или поединок отменён")
     if match.status == "staged":
         raise ValueError("Этап еще не начат")
     if match.status == "finished":
@@ -368,6 +403,8 @@ def apply_score(db: Session, match: Match, side: str, delta: int) -> Match:
     return match
 
 def add_warning(db: Session, match: Match, side: str) -> dict[str, Any]:
+    if match.category.status == "completed" or match.status == "cancelled":
+        raise ValueError("Категория завершена или поединок отменён")
     if match.status == "staged":
         raise ValueError("Этап еще не начат")
     if match.status == "finished":
@@ -398,35 +435,20 @@ def add_warning(db: Session, match: Match, side: str) -> dict[str, Any]:
     match.version += 1
 
     if action == "forfeit":
-        opponent = match.blue_cp_id if side == "red" else match.red_cp_id
-        if opponent:
-            _finish_match(db, match, opponent, "WARNING_FORFEIT", commit=False)
-            outcome["match_forfeit"] = True
+        outcome["match_forfeit_pending"] = True
     limit = match.category.cumulative_warning_limit
     if limit > 0 and cp.cumulative_warnings >= limit:
         cp.disqualified = True
         outcome["disqualified"] = True
-        if match.status != "finished":
-            opponent = match.blue_cp_id if side == "red" else match.red_cp_id
-            if opponent:
-                _finish_match(db, match, opponent, "DISQUALIFICATION", commit=False)
-        # Автоматически завершаем будущие готовые бои, где уже стоит этот участник.
-        future = db.scalars(select(Match).where(
-            Match.category_id == match.category_id,
-            Match.status.in_(["ready", "pending", "blocked"]),
-            Match.id != match.id,
-        )).all()
-        for fm in future:
-            if fm.red_cp_id == cp.id and fm.blue_cp_id:
-                _finish_match(db, fm, fm.blue_cp_id, "DISQUALIFICATION", commit=False)
-            elif fm.blue_cp_id == cp.id and fm.red_cp_id:
-                _finish_match(db, fm, fm.red_cp_id, "DISQUALIFICATION", commit=False)
+        outcome["disqualification_pending"] = True
     audit(db, match.category.tournament_id, "WARNING_ADDED", "match", match.id, match.area_id, {"side": side, **outcome})
     db.commit()
     return outcome
 
 def undo_last_event(db: Session, match: Match) -> bool:
-    event = db.scalar(select(MatchEvent).where(MatchEvent.match_id == match.id, MatchEvent.undone.is_(False), MatchEvent.event_type.in_(["score", "warning"]))
+    if match.category.status == "completed" or match.status == "cancelled":
+        return False
+    event = db.scalar(select(MatchEvent).where(MatchEvent.match_id == match.id, MatchEvent.undone.is_(False), MatchEvent.event_type.in_(["score", "warning", "technical_loss"]))
                       .order_by(MatchEvent.id.desc()))
     if not event or match.status == "finished":
         return False
@@ -443,6 +465,8 @@ def undo_last_event(db: Session, match: Match) -> bool:
             match.blue_warnings = max(0, match.blue_warnings - 1)
         if cp:
             cp.cumulative_warnings = max(0, cp.cumulative_warnings - 1)
+            limit = match.category.cumulative_warning_limit
+            cp.disqualified = bool(limit > 0 and cp.cumulative_warnings >= limit)
             # Откатываем штраф по счёту, если его породило отменяемое предупреждение.
             rule = json_load(event.payload_json, {})
             if rule.get("action") == "score_penalty":

@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..db import get_db
+from ..services.category_lifecycle import cancel_unfinished_matches, reopen_cancelled_matches
 from ..engine import (
     add_category_participant,
     audit,
@@ -22,7 +23,7 @@ from ..engine import (
 from ..exporter import write_json_export, write_pdf_export
 from ..models import Area, Category, CategoryParticipant, Match, Participant, Tournament
 from .common import _broadcast, _cp_dict, _get_or_404
-from .schemas import CategoryIn, EnrollIn, SeedIn
+from .schemas import CategoryCompleteIn, CategoryIn, EnrollIn, SeedIn
 
 router = APIRouter()
 
@@ -198,17 +199,23 @@ async def update_category(
 async def complete_category(
     category_id: int,
     request: Request,
+    data: CategoryCompleteIn = CategoryCompleteIn(),
     db: Session = Depends(get_db),
 ):
     category = _get_or_404(db, Category, category_id, "Категория")
-    active = db.scalar(
+    unfinished = db.scalar(
         select(func.count(Match.id)).where(
             Match.category_id == category.id,
-            Match.status == "in_progress",
+            Match.status.not_in(["finished", "cancelled"]),
         )
-    )
-    if active:
-        raise HTTPException(409, "В категории идет активный поединок")
+    ) or 0
+    if unfinished and not data.cancel_unfinished:
+        raise HTTPException(
+            409,
+            "В категории остались незавершённые бои. Для досрочного завершения "
+            "подтвердите отмену незавершённых боёв",
+        )
+    cancelled = cancel_unfinished_matches(db, category) if data.cancel_unfinished else 0
 
     category.status = "completed"
     category.completed_at = datetime.now(timezone.utc)
@@ -225,6 +232,7 @@ async def complete_category(
         "CATEGORY_COMPLETED",
         "category",
         category.id,
+        payload={"cancelled_matches": cancelled},
     )
     db.commit()
 
@@ -250,6 +258,7 @@ async def complete_category(
     )
     return {
         "ok": True,
+        "cancelled_matches": cancelled,
         "exports": {
             "pdf": f"/api/categories/{category.id}/export.pdf",
             "json": f"/api/categories/{category.id}/export.json",
@@ -270,6 +279,7 @@ async def reopen_category(
     )
     category.status = "ready" if has_matches else "draft"
     category.completed_at = None
+    reopen_cancelled_matches(db, category)
     auto_assign_ready_matches(db, category.tournament_id)
     db.commit()
     await _broadcast(

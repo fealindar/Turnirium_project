@@ -67,8 +67,8 @@ function stageName(m) {
 function affiliation(f) { return [f?.club, f?.city].filter(Boolean).join(' · '); }
 function fighterText(f) { return f ? `${f.name}${affiliation(f) ? ' · '+affiliation(f) : ''}` : '—'; }
 function matchTitle(m) { return `#${m.match_no} · ${m.category_name} · ${fighterText(m.red)} — ${fighterText(m.blue)}`; }
-function statusText(s){ return ({draft:'черновик',staged:'состав редактируется',blocked:'ожидает участников',pending:'ожидает',ready:'готов',in_progress:'идёт',finished:'завершён',completed:'завершена',active:'активен',withdrawn:'выбыл'})[s]||s; }
-function reasonText(r){ return ({POINTS:'По счёту',DRAW:'Ничья',TECHNICAL_LOSS:'Техническое поражение',WARNING_FORFEIT:'Поражение по предупреждениям',DISQUALIFICATION:'Дисквалификация',WITHDRAWAL:'Участник выбыл',BYE:'Автопроход'})[r]||r||''; }
+function statusText(s){ return ({draft:'черновик',staged:'состав редактируется',blocked:'ожидает участников',pending:'ожидает',ready:'готов',in_progress:'идёт',cancelled:'отменён',finished:'завершён',completed:'завершена',active:'активен',withdrawn:'выбыл'})[s]||s; }
+function reasonText(r){ return ({POINTS:'По счёту',DRAW:'Ничья',TECHNICAL_LOSS:'Техническое поражение',WARNING_FORFEIT:'Поражение по предупреждениям',DISQUALIFICATION:'Дисквалификация',WITHDRAWAL:'Участник выбыл',DOUBLE_FORFEIT:'Обоюдное поражение',DOUBLE_TECHNICAL_LOSS:'Обоюдное техническое поражение',DOUBLE_WARNING_FORFEIT:'Обоюдное поражение по предупреждениям',DOUBLE_DISQUALIFICATION:'Обоюдная дисквалификация',DOUBLE_WITHDRAWAL:'Обоюдное выбытие',NO_CONTEST:'Нет участников для продолжения',BYE:'Автопроход'})[r]||r||''; }
 function formatName(format){ return ({knockout:'Олимпийская',groups:'Группы + плей-офф',swiss:'Швейцарская',round_robin:'Все со всеми'})[format]||format||'—'; }
 function roundLabel(round,total){
   const distance=total-round;
@@ -86,6 +86,11 @@ async function openMatchCorrection(matchId,onDone=()=>{}){
   const option=(value,label,selected)=>`<option value="${value}" ${selected?'selected':''}>${esc(label)}</option>`;
   const resultKey=(()=>{
     if(m.reason==='DRAW')return 'draw';
+    if(m.reason==='DOUBLE_FORFEIT')return 'double-forfeit';
+    if(m.reason==='DOUBLE_TECHNICAL_LOSS')return 'double-tech';
+    if(m.reason==='DOUBLE_WARNING_FORFEIT')return 'double-warning';
+    if(m.reason==='DOUBLE_DISQUALIFICATION')return 'double-dsq';
+    if(m.reason==='DOUBLE_WITHDRAWAL')return 'double-withdraw';
     if(m.reason==='TECHNICAL_LOSS')return m.winner_cp_id===m.red?.cp_id?'blue-tech':'red-tech';
     if(m.reason==='WARNING_FORFEIT')return m.winner_cp_id===m.red?.cp_id?'blue-warning':'red-warning';
     if(m.reason==='DISQUALIFICATION')return m.winner_cp_id===m.red?.cp_id?'blue-dsq':'red-dsq';
@@ -110,13 +115,18 @@ async function openMatchCorrection(matchId,onDone=()=>{}){
         ${option('blue-dsq','Дисквалификация синего',resultKey==='blue-dsq')}
         ${option('red-withdraw','Красный выбыл',resultKey==='red-withdraw')}
         ${option('blue-withdraw','Синий выбыл',resultKey==='blue-withdraw')}
+        ${option('double-forfeit','Обоюдное поражение',resultKey==='double-forfeit')}
+        ${option('double-tech','Обоюдное техническое поражение',resultKey==='double-tech')}
+        ${option('double-warning','Обоюдное поражение по предупреждениям',resultKey==='double-warning')}
+        ${option('double-dsq','Обоюдная дисквалификация',resultKey==='double-dsq')}
+        ${option('double-withdraw','Обоюдное выбытие',resultKey==='double-withdraw')}
       </select></div>
       <div class="row correction-actions"><button type="button" id="cancelCorrection">Отмена</button><button class="primary">Сохранить исправление</button></div>
     </form></div>`;
   document.body.appendChild(overlay);
   const close=()=>overlay.remove();$('#closeCorrection',overlay).onclick=close;$('#cancelCorrection',overlay).onclick=close;overlay.onclick=e=>{if(e.target===overlay)close()};
   $('#matchCorrectionForm',overlay).onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),r=String(fd.get('result')),red=m.red?.cp_id||null,blue=m.blue?.cp_id||null;let winner=null,reason='POINTS';
-    if(r==='red-points'){winner=red;reason='POINTS'}else if(r==='blue-points'){winner=blue;reason='POINTS'}else if(r==='draw'){winner=null;reason='DRAW'}else if(r==='red-tech'){winner=blue;reason='TECHNICAL_LOSS'}else if(r==='blue-tech'){winner=red;reason='TECHNICAL_LOSS'}else if(r==='red-warning'){winner=blue;reason='WARNING_FORFEIT'}else if(r==='blue-warning'){winner=red;reason='WARNING_FORFEIT'}else if(r==='red-dsq'){winner=blue;reason='DISQUALIFICATION'}else if(r==='blue-dsq'){winner=red;reason='DISQUALIFICATION'}else if(r==='red-withdraw'){winner=blue;reason='WITHDRAWAL'}else if(r==='blue-withdraw'){winner=red;reason='WITHDRAWAL'}
+    if(r==='red-points'){winner=red;reason='POINTS'}else if(r==='blue-points'){winner=blue;reason='POINTS'}else if(r==='draw'){winner=null;reason='DRAW'}else if(r==='red-tech'){winner=blue;reason='TECHNICAL_LOSS'}else if(r==='blue-tech'){winner=red;reason='TECHNICAL_LOSS'}else if(r==='red-warning'){winner=blue;reason='WARNING_FORFEIT'}else if(r==='blue-warning'){winner=red;reason='WARNING_FORFEIT'}else if(r==='red-dsq'){winner=blue;reason='DISQUALIFICATION'}else if(r==='blue-dsq'){winner=red;reason='DISQUALIFICATION'}else if(r==='red-withdraw'){winner=blue;reason='WITHDRAWAL'}else if(r==='blue-withdraw'){winner=red;reason='WITHDRAWAL'}else if(r==='double-forfeit'){reason='DOUBLE_FORFEIT'}else if(r==='double-tech'){reason='DOUBLE_TECHNICAL_LOSS'}else if(r==='double-warning'){reason='DOUBLE_WARNING_FORFEIT'}else if(r==='double-dsq'){reason='DOUBLE_DISQUALIFICATION'}else if(r==='double-withdraw'){reason='DOUBLE_WITHDRAWAL'}
     const payload={red_score:Number(fd.get('red_score')),blue_score:Number(fd.get('blue_score')),red_warnings:Number(fd.get('red_warnings')),blue_warnings:Number(fd.get('blue_warnings')),winner_cp_id:winner,reason};
     if(!confirm('Сохранить исправленный результат? Изменение будет записано в журнал.'))return;
     try{const res=await api(`/api/matches/${m.id}/correction`,{method:'PUT',body:JSON.stringify(payload)});close();if(res.notes?.length)toast(res.notes.join(' '));else toast('Результат исправлен');await onDone(res)}catch(err){toast(err.message,true)}

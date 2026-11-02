@@ -192,7 +192,7 @@ class Match(Base):
     winner_cp = relationship("CategoryParticipant", foreign_keys=[winner_cp_id])
     next_match = relationship("Match", remote_side=[id], foreign_keys=[next_match_id])
 
-    events = relationship("MatchEvent", back_populates="match", cascade="all, delete-orphan")
+    events = relationship("MatchEvent", back_populates="match", cascade="all, delete-orphan", lazy="selectin")
 
 
 class MatchEvent(Base):

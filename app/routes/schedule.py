@@ -7,6 +7,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
+from ..services.schedule_distribution import distribute_category_unit
+from ..services.scheduling import optimize_tournament_queues
 from ..engine import (
     assign_ready_category_unit,
     audit,
@@ -18,7 +20,7 @@ from ..engine import (
 )
 from ..models import Area, Category, CategoryParticipant, Match, Tournament
 from .common import _broadcast, _get_or_404
-from .schemas import AssignIn, ReorderIn, ScheduleSettingsIn, ScheduleUnitAssignIn
+from .schemas import AssignIn, ReorderIn, ScheduleSettingsIn, ScheduleUnitAssignIn, ScheduleMultiUnitAssignIn
 
 router = APIRouter()
 
@@ -152,9 +154,6 @@ def schedule(tournament_id: int, db: Session = Depends(get_db)):
     """Возвращает очереди, быстрые назначения и предупреждения расписания."""
 
     tournament = _get_or_404(db, Tournament, tournament_id, "Турнир")
-    auto_assign_ready_matches(db, tournament_id)
-    db.commit()
-
     areas = db.scalars(
         select(Area).where(Area.tournament_id == tournament_id).order_by(Area.id)
     ).all()
@@ -258,35 +257,16 @@ async def optimize_schedule(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    """Перестраивает очереди всех включённых площадок с учётом отдыха бойцов."""
-
-    tournament = _get_or_404(db, Tournament, tournament_id, "Турнир")
-    if not tournament.avoid_consecutive_matches:
-        raise HTTPException(409, "Сначала включите разведение повторных выходов")
-
-    areas = db.scalars(
-        select(Area)
-        .where(Area.tournament_id == tournament.id, Area.enabled.is_(True))
-        .order_by(Area.id)
-    ).all()
-    warnings = sum(optimize_area_queue(db, area) for area in areas)
-    audit(
-        db,
-        tournament.id,
-        "SCHEDULE_OPTIMIZED",
-        "tournament",
-        tournament.id,
-        payload={
-            "preferred_match_gap": tournament.preferred_match_gap,
-            "unavoidable_conflicts": warnings,
-        },
-    )
+    """Оптимизирует назначенные бои в любой момент с балансом загрузки."""
+    _get_or_404(db, Tournament, tournament_id, "Турнир")
+    try:
+        result = optimize_tournament_queues(db, tournament_id)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    audit(db, tournament_id, "SCHEDULE_OPTIMIZED", "tournament", tournament_id, payload=result)
     db.commit()
-    await _broadcast(
-        request,
-        {"type": "schedule_changed", "tournament_id": tournament.id},
-    )
-    return {"ok": True, "unavoidable_conflicts": warnings}
+    await _broadcast(request, {"type": "schedule_changed", "tournament_id": tournament_id})
+    return {"ok": True, **result}
 
 
 @router.post("/tournaments/{tournament_id}/schedule-reset")
@@ -379,6 +359,32 @@ async def assign_schedule_unit(
     return {"ok": True, "assigned": assigned}
 
 
+@router.post("/tournaments/{tournament_id}/schedule-assign-multi")
+async def assign_schedule_multi(
+    tournament_id: int,
+    data: ScheduleMultiUnitAssignIn,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Назначает блок категории/группы на несколько площадок одной транзакцией."""
+    _get_or_404(db, Tournament, tournament_id, "Турнир")
+    try:
+        assigned = distribute_category_unit(
+            db, tournament_id, data.category_id, data.area_ids, data.group_name.strip()
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if not assigned:
+        raise HTTPException(409, "В выбранном блоке нет готовых неназначенных боёв")
+    audit(
+        db, tournament_id, "SCHEDULE_UNIT_MULTI_ASSIGNED", "category", data.category_id,
+        payload={"group_name": data.group_name.strip(), "areas": assigned},
+    )
+    db.commit()
+    await _broadcast(request, {"type": "schedule_changed", "tournament_id": tournament_id})
+    return {"ok": True, "assigned": sum(assigned.values()), "areas": assigned}
+
+
 @router.post("/schedule/assign")
 async def assign_match(
     data: AssignIn,
@@ -388,8 +394,8 @@ async def assign_match(
     """Назначает ещё не начатый бой на площадку либо снимает назначение."""
 
     match = _get_or_404(db, Match, data.match_id, "Поединок")
-    if match.status in {"in_progress", "finished"}:
-        raise HTTPException(409, "Начатый или завершенный бой нельзя переназначить")
+    if match.status in {"in_progress", "finished", "cancelled"} or match.category.status == "completed":
+        raise HTTPException(409, "Начатый, завершённый или отменённый бой нельзя переназначить")
 
     target_area: Area | None = None
     if data.area_id is not None:

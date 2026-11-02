@@ -16,6 +16,11 @@ ResultReason = Literal[
     "WARNING_FORFEIT",
     "DISQUALIFICATION",
     "WITHDRAWAL",
+    "DOUBLE_FORFEIT",
+    "DOUBLE_TECHNICAL_LOSS",
+    "DOUBLE_WARNING_FORFEIT",
+    "DOUBLE_DISQUALIFICATION",
+    "DOUBLE_WITHDRAWAL",
 ]
 CategoryFormat = Literal["knockout", "groups", "swiss", "round_robin"]
 
@@ -133,8 +138,8 @@ class CategoryIn(BaseModel):
     def validate_related_values(self) -> "CategoryIn":
         if self.timer_warning_sec > self.match_duration_sec:
             raise ValueError("Предупреждение таймера не может быть позже окончания боя")
-        if self.format == "groups" and self.group_qualifiers >= self.group_target_size:
-            raise ValueError("Из группы должно выходить меньше бойцов, чем её целевой размер")
+        if self.format == "groups" and self.group_qualifiers > self.group_target_size:
+            raise ValueError("Число выходящих из группы не может превышать её целевой размер")
         return self
 
 
@@ -216,6 +221,16 @@ class ScheduleUnitAssignIn(BaseModel):
     category_id: int
     area_id: int
     group_name: str = Field(default="", max_length=32)
+
+
+class ScheduleMultiUnitAssignIn(BaseModel):
+    category_id: int
+    area_ids: list[int] = Field(min_length=1)
+    group_name: str = Field(default="", max_length=32)
+
+
+class CategoryCompleteIn(BaseModel):
+    cancel_unfinished: bool = False
 
 
 class ReorderIn(BaseModel):

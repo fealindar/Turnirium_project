@@ -11,6 +11,33 @@ async function initSecretary(areaId){
   setInterval(load,5000);
 }
 let secretaryInfoTab='queue';
+function secretaryFinishPayload(match) {
+  const penalties=match.pending_penalties || {};
+  const sides=Object.keys(penalties);
+  if(sides.length === 2) {
+    const reasonByKind = {
+      TECHNICAL_LOSS:'DOUBLE_TECHNICAL_LOSS',
+      WARNING_FORFEIT:'DOUBLE_WARNING_FORFEIT',
+      DISQUALIFICATION:'DOUBLE_DISQUALIFICATION',
+      WITHDRAWAL:'DOUBLE_WITHDRAWAL'
+    };
+    const reason=penalties.red===penalties.blue ? (reasonByKind[penalties.red] || 'DOUBLE_FORFEIT') : 'DOUBLE_FORFEIT';
+    return {winner_cp_id:null,reason};
+  }
+  if(sides.length === 1) {
+    const loser=sides[0];
+    return {winner_cp_id: loser === 'red' ? match.blue?.cp_id : match.red?.cp_id, reason:penalties[loser]};
+  }
+  return null; // Обычные исходы сохраняются сразу, без промежуточного выбора.
+}
+function secretaryResultInfo(match) {
+  const penalties=match.pending_penalties || {};
+  if(penalties.red && penalties.blue) return 'Обоим бойцам назначено поражение. Победителя нет.';
+  if(penalties.red) return 'Красному назначено поражение. Победитель — синий.';
+  if(penalties.blue) return 'Синему назначено поражение. Победитель — красный.';
+  return 'Нажмите победу по счёту или ничью — результат сохранится сразу.';
+}
+
 function secretaryStageLabel(match, categoryMatches=[]) {
   if (match.is_third_place) return 'Бой за 3-е место';
   if (match.stage === 'group') return `Группа ${match.group_name || '—'}`;
@@ -27,23 +54,55 @@ function secretaryStageLabel(match, categoryMatches=[]) {
 function renderSecretary(st,areaId,categoryMatches=[]){
   $('#areaTitle').textContent=st.area.name; const m=st.current;
   if(!m){$('#secretaryContent').innerHTML=`<div class="empty-state compact"><h2>Нет выбранного поединка</h2><p>Если бой уже назначен на площадку, выберите следующий.</p><button id="nextFight" class="primary">Выбрать следующий</button></div>${secretaryInfoTabsHtml(st,categoryMatches,null)}`;$('#nextFight').onclick=()=>nextFight(areaId);bindSecretaryInfoTabs();return;}
+  const hasPendingPenalties = Object.keys(m.pending_penalties || {}).length > 0;
   const buttons=(side)=>m.score_buttons.map(b=>`<button data-score-side="${side}" data-delta="${b.delta}" ${m.status==='finished'?'disabled':''}>${esc(b.label)}</button>`).join('');
   $('#secretaryContent').innerHTML=`<div class="fight-panel">
-    <div class="fighter red"><div class="name">${esc(m.red?.name||'—')}</div><div class="club">${esc(affiliation(m.red))}</div><div class="score">${m.red_score}</div><div class="score-buttons">${buttons('red')}</div><div class="row fighter-actions"><button data-warning="red" ${m.status==='finished'?'disabled':''}>⚠ Предупреждение (${m.red_warnings})</button><button class="tech-loss-btn" data-tech-loss="red" ${m.status==='finished'?'disabled':''}>Тех. поражение</button></div></div>
-    <div class="timer-box"><div class="fight-meta">${esc(m.category_name)}</div><div class="secretary-context"><span class="secretary-context-badge">${esc(formatName(m.category_format))}</span><span class="secretary-context-badge stage">${esc(secretaryStageLabel(m,categoryMatches))}</span></div><div class="timer" id="fightTimer">${fmtTime(m.remaining_ms)}</div><div class="timer-controls"><button id="toggleTimer" class="timer-toggle ${m.timer_running?'running':''}" ${m.status==='finished'?'disabled':''}>${m.timer_running?'Ⅱ Пауза':'▶ Старт'}</button><button id="resetTimer" class="timer-secondary" ${m.status==='finished'?'disabled':''}>↺ Сброс</button><button id="setTimer" class="timer-secondary" ${m.status==='finished'?'disabled':''}>Время</button></div><div class="stack center-actions">${m.status==='finished'?`<button id="correctCurrentFight" class="primary">✎ Исправить завершенный бой</button>`:`<button id="undoBtn">Отменить последнее</button><button class="success" data-win="${m.red?.cp_id||''}">Победа красного по счёту</button><button class="success" data-win="${m.blue?.cp_id||''}">Победа синего по счёту</button>${['group','swiss','round_robin'].includes(m.stage)?'<button id="drawFight">Ничья</button>':''}`}<button id="nextFight" ${m.status==='finished'?'':'disabled title="Сначала внесите результат текущего боя"'}>Следующий бой</button>${m.status==='finished'?'':'<small class="next-fight-lock">Сначала внесите результат текущего боя</small>'}</div><div class="fight-status-pill">${esc(statusText(m.status))}${m.reason?' · '+esc(reasonText(m.reason)):''}</div></div>
-    <div class="fighter blue"><div class="name">${esc(m.blue?.name||'—')}</div><div class="club">${esc(affiliation(m.blue))}</div><div class="score">${m.blue_score}</div><div class="score-buttons">${buttons('blue')}</div><div class="row fighter-actions"><button data-warning="blue" ${m.status==='finished'?'disabled':''}>⚠ Предупреждение (${m.blue_warnings})</button><button class="tech-loss-btn" data-tech-loss="blue" ${m.status==='finished'?'disabled':''}>Тех. поражение</button></div></div>
+    <div class="fighter red"><div class="name">${esc(m.red?.name||'—')}</div><div class="club">${esc(affiliation(m.red))}</div><div class="score">${m.red_score}</div><div class="score-buttons">${buttons('red')}</div><div class="row fighter-actions"><button data-warning="red" ${m.status==='finished'?'disabled':''}>⚠ Предупреждение (${m.red_warnings})</button><button class="tech-loss-btn ${m.pending_penalties?.red==='TECHNICAL_LOSS'?'active-penalty':''}" data-tech-loss="red" ${m.status==='finished'?'disabled':''}>Тех. поражение</button></div></div>
+    <div class="timer-box"><div class="fight-meta">${esc(m.category_name)}</div><div class="secretary-context"><span class="secretary-context-badge">${esc(formatName(m.category_format))}</span><span class="secretary-context-badge stage">${esc(secretaryStageLabel(m,categoryMatches))}</span></div><div class="timer" id="fightTimer">${fmtTime(m.remaining_ms)}</div><div class="timer-controls"><button id="toggleTimer" class="timer-toggle ${m.timer_running?'running':''}" ${m.status==='finished'?'disabled':''}>${m.timer_running?'Ⅱ Пауза':'▶ Старт'}</button><button id="resetTimer" class="timer-secondary" ${m.status==='finished'?'disabled':''}>↺ Сброс</button><button id="setTimer" class="timer-secondary" ${m.status==='finished'?'disabled':''}>Время</button></div><div class="stack center-actions">${m.status==='finished'?`<button id="correctCurrentFight" class="primary">✎ Исправить завершенный бой</button>`:`<button id="undoBtn">Отменить последнее</button><button data-win="red" ${hasPendingPenalties?'disabled':''}>Победа красного по счёту</button><button data-win="blue" ${hasPendingPenalties?'disabled':''}>Победа синего по счёту</button>${['group','swiss','round_robin'].includes(m.stage)?`<button id="drawFight" ${hasPendingPenalties?'disabled':''}>Ничья</button>`:''}<small id="secretaryResultInfo">${esc(secretaryResultInfo(m))}</small>${hasPendingPenalties ? '<button class="primary" id="finishFight">✓ Завершить бой</button>' : ''}`}<button id="nextFight" ${m.status==='finished'?'':'disabled title="Сначала внесите результат текущего боя"'}>Следующий бой</button>${m.status==='finished'?'':'<small class="next-fight-lock">Сначала внесите результат текущего боя</small>'}</div><div class="fight-status-pill">${esc(statusText(m.status))}${m.reason?' · '+esc(reasonText(m.reason)):''}</div></div>
+    <div class="fighter blue"><div class="name">${esc(m.blue?.name||'—')}</div><div class="club">${esc(affiliation(m.blue))}</div><div class="score">${m.blue_score}</div><div class="score-buttons">${buttons('blue')}</div><div class="row fighter-actions"><button data-warning="blue" ${m.status==='finished'?'disabled':''}>⚠ Предупреждение (${m.blue_warnings})</button><button class="tech-loss-btn ${m.pending_penalties?.blue==='TECHNICAL_LOSS'?'active-penalty':''}" data-tech-loss="blue" ${m.status==='finished'?'disabled':''}>Тех. поражение</button></div></div>
   </div><div class="queue-preview"><div class="card"><h3>Следующий · подготовиться</h3><div>${st.next?esc(matchTitle(st.next)):'Очередь пуста'}</div></div><div class="card"><h3>После него</h3><div>${st.following?esc(matchTitle(st.following)):'—'}</div></div></div>${secretaryInfoTabsHtml(st,categoryMatches,m)}`;
   $$('[data-score-side]').forEach(b=>b.onclick=()=>matchAction(m.id,'score',{side:b.dataset.scoreSide,delta:Number(b.dataset.delta)}));
   $$('[data-warning]').forEach(b=>b.onclick=async()=>{try{const r=await api(`/api/matches/${m.id}/warning`,{method:'POST',body:JSON.stringify({side:b.dataset.warning})});const o=r.outcome;if(o.disqualified)toast('Достигнут лимит предупреждений: участник дисквалифицирован',true);else if(o.action==='forfeit')toast('По правилу предупреждения назначено поражение');else if(o.action==='score_penalty')toast(`Штраф к счёту: ${o.delta}`);}catch(e){toast(e.message,true)}});
-  $$('[data-tech-loss]').forEach(b=>b.onclick=async()=>{const losing=b.dataset.techLoss,winner=losing==='red'?m.blue?.cp_id:m.red?.cp_id;if(!winner)return;if(!confirm(`Зафиксировать техническое поражение ${losing==='red'?'красной':'синей'} стороны?`))return;try{await api(`/api/matches/${m.id}/finish`,{method:'POST',body:JSON.stringify({winner_cp_id:Number(winner),reason:'TECHNICAL_LOSS'})})}catch(e){toast(e.message,true)}});
+  $$('[data-tech-loss]').forEach(b=>b.onclick=async()=>{try{await api(`/api/matches/${m.id}/technical-loss`,{method:'POST',body:JSON.stringify({side:b.dataset.techLoss})});toast('Отметка сохранена. Бой завершится только после подтверждения.')}catch(e){toast(e.message,true)}});
   if($('#toggleTimer')) $('#toggleTimer').onclick=async()=>{const button=$('#toggleTimer');button.disabled=true;try{await api(`/api/matches/${m.id}/timer/${m.timer_running?'pause':'start'}`,{method:'POST'})}catch(e){toast(e.message,true);button.disabled=false}};
   if($('#resetTimer')) $('#resetTimer').onclick=()=>{if(confirm('Сбросить таймер на полную длительность?'))simplePost(`/api/matches/${m.id}/timer/reset`)};
   if($('#setTimer')) $('#setTimer').onclick=()=>{const sec=prompt('Оставшееся время в секундах:',Math.ceil(m.remaining_ms/1000));if(sec!==null)simplePost(`/api/matches/${m.id}/timer/set`,{seconds:Number(sec)})};
   if($('#undoBtn')) $('#undoBtn').onclick=()=>simplePost(`/api/matches/${m.id}/undo`);
   if($('#correctCurrentFight')) $('#correctCurrentFight').onclick=()=>openMatchCorrection(m.id);
-  $$('[data-win]').forEach(b=>b.onclick=async()=>{if(!b.dataset.win)return;if(!confirm('Подтвердить победу по счёту?'))return;try{await api(`/api/matches/${m.id}/finish`,{method:'POST',body:JSON.stringify({winner_cp_id:Number(b.dataset.win),reason:'POINTS'})})}catch(e){toast(e.message,true)}});
-  if($('#drawFight')) $('#drawFight').onclick=async()=>{if(!confirm('Зафиксировать ничью?'))return;try{await api(`/api/matches/${m.id}/finish`,{method:'POST',body:JSON.stringify({winner_cp_id:null,reason:'DRAW'})})}catch(e){toast(e.message,true)}};
+  // Стандартный исход завершает бой одним нажатием. Сервер остаётся источником
+  // истины: он запрещает POINTS/DRAW при ожидающей санкции и повторную фиксацию.
+  $$('[data-win]').forEach(button => button.onclick = () => {
+    const winner = button.dataset.win === 'red' ? m.red?.cp_id : m.blue?.cp_id;
+    submitSecretaryResult(m, {winner_cp_id:winner, reason:'POINTS'});
+  });
+  if ($('#drawFight')) $('#drawFight').onclick = () =>
+    submitSecretaryResult(m, {winner_cp_id:null, reason:'DRAW'});
+
+  // При техническом поражении, выбытии или санкции по предупреждениям
+  // секретарь может отметить ОБЕ стороны до отдельного завершения.
+  if ($('#finishFight')) $('#finishFight').onclick = () => {
+    const payload = secretaryFinishPayload(m);
+    if (!payload) { toast('Отметьте санкцию для одного или обоих бойцов', true); return; }
+    submitSecretaryResult(m, payload);
+  };
   $('#nextFight').onclick=()=>nextFight(areaId); bindSecretaryInfoTabs();
+}
+async function submitSecretaryResult(match, payload) {
+  // Блокируем повторные нажатия до ответа API, в том числе другие варианты исхода.
+  const actions = $$('#secretaryContent [data-win], #secretaryContent #drawFight, #secretaryContent #finishFight');
+  if (actions.some(button => button.dataset.submitting === 'true')) return;
+  actions.forEach(button => { button.disabled = true; button.dataset.submitting = 'true'; });
+  try {
+    await api(`/api/matches/${match.id}/finish`, {method:'POST', body:JSON.stringify(payload)});
+    // Актуальное состояние приходит по WebSocket/резервному опросу.
+  } catch (error) {
+    actions.forEach(button => {
+      button.disabled = Object.keys(match.pending_penalties || {}).length > 0 &&
+        (button.matches('[data-win]') || button.id === 'drawFight');
+      delete button.dataset.submitting;
+    });
+    toast(error.message, true);
+  }
 }
 async function nextFight(areaId){try{await api(`/api/areas/${areaId}/next`,{method:'POST'})}catch(e){toast(e.message,true)}}
 async function simplePost(path,body=null){try{await api(path,{method:'POST',body:body?JSON.stringify(body):undefined})}catch(e){toast(e.message,true)}}

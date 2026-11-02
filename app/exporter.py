@@ -419,6 +419,11 @@ def _category_story(db: Session, category: Category, styles) -> list[Any]:
             reason = {
                 "POINTS": "По счёту", "TECHNICAL_LOSS": "Тех. поражение", "WARNING_FORFEIT": "По предупреждениям",
                 "DISQUALIFICATION": "Дисквалификация", "WITHDRAWAL": "Выбыл", "BYE": "Автопроход",
+                "DRAW": "Ничья", "DOUBLE_FORFEIT": "Обоюдное поражение",
+                "DOUBLE_TECHNICAL_LOSS": "Обоюдное техническое поражение",
+                "DOUBLE_WARNING_FORFEIT": "Обоюдное поражение по предупреждениям",
+                "DOUBLE_DISQUALIFICATION": "Обоюдная дисквалификация",
+                "DOUBLE_WITHDRAWAL": "Обоюдное выбытие",
             }.get(m.get("reason"), m.get("reason") or "-")
             data.append([
                 m["match_no"], stage_label, _p(m.get("red", {}).get("name") if m.get("red") else "BYE", styles["small"]),

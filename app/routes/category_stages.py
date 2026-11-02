@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..db import get_db
 from ..engine import (
+    audit,
     generate_group_playoff,
     generate_groups,
     generate_knockout,
@@ -223,6 +224,31 @@ async def group_playoff(
         {"type": "schedule_changed", "tournament_id": category.tournament_id},
     )
     return {"ok": True}
+
+
+@router.post("/categories/{category_id}/swiss-add-round")
+async def swiss_add_round(
+    category_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Увеличивает лимит туров без изменения уже сыгранных Swiss-боёв."""
+    category = _get_or_404(db, Category, category_id, "Категория")
+    if category.format != "swiss" or category.status == "completed":
+        raise HTTPException(409, "Можно добавлять туры только активной Swiss-категории")
+    current = db.scalar(select(Match.id).where(Match.category_id == category_id, Match.stage == "swiss").limit(1))
+    if not current:
+        raise HTTPException(409, "Сначала сформируйте первый Swiss-тур")
+    if category.swiss_rounds >= 50:
+        raise HTTPException(409, "Максимум 50 Swiss-туров")
+    category.swiss_rounds += 1
+    audit(
+        db, category.tournament_id, "SWISS_ROUND_ADDED", "category", category.id,
+        payload={"swiss_rounds": category.swiss_rounds},
+    )
+    db.commit()
+    await _broadcast(request, {"type": "categories_changed", "category_id": category_id, "tournament_id": category.tournament_id})
+    return {"ok": True, "swiss_rounds": category.swiss_rounds}
 
 
 @router.post("/categories/{category_id}/swiss-next")

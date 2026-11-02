@@ -34,6 +34,11 @@ def make_group_queue():
         db.commit()
         generate_groups(db, category)
         start_group_stage(db, category)
+        from app.engine import assign_ready_category_unit
+        assert assign_ready_category_unit(db, tournament.id, category.id, area.id) > 0
+        current = db.scalar(select(Match).where(Match.area_id == area.id).order_by(Match.queue_order, Match.id))
+        area.current_match_id = current.id
+        db.commit()
         db.refresh(area)
         assert area.current_match_id is not None
         current_id = area.current_match_id

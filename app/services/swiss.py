@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..models import Category, CategoryParticipant, Match
+from ..models import Area, Category, CategoryParticipant, Match
 from .common import _affiliation_penalty, _layout_match_locked, audit, clear_category_matches, now_utc
 from .scheduling import auto_assign_ready_matches
 from .standings import standings
@@ -21,6 +21,8 @@ def _played_pairs(db: Session, category_id: int) -> set[frozenset[int]]:
     return pairs
 
 def generate_swiss_round(db: Session, category: Category) -> list[Match]:
+    if category.format != "swiss" or category.status == "completed":
+        raise ValueError("Категория не допускает формирование новых Swiss-туров")
     current = swiss_current_round(db, category.id)
     if current:
         unfinished = db.scalar(select(func.count(Match.id)).where(Match.category_id == category.id, Match.stage == "swiss", Match.round_no == current, Match.status != "finished"))
@@ -147,6 +149,8 @@ def rebuild_swiss_round_from_slots(db: Session, category: Category, cp_ids: list
     return rows
 
 def start_swiss_round(db: Session, category: Category) -> list[Match]:
+    if category.status == "completed":
+        raise ValueError("Категория завершена")
     current = swiss_current_round(db, category.id)
     if not current:
         raise ValueError("Сначала сформируйте Swiss-тур")

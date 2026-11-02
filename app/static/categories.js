@@ -37,6 +37,14 @@ function categorySummaryHtml(c,locked){
 function categoryEditorHtml(c,locked){
   return `<div class="card category-editor" id="categoryRulesEditor"><div class="category-editor-head"><div><span class="eyebrow">Редактирование</span><h2>Правила категории</h2><p>${locked?(c.status==='completed'?'Категория завершена. Правила доступны только для просмотра.':'После первого боя спортивные правила зафиксированы. Название категории можно изменить.'):'Изменения правил доступны до первого боя.'}</p></div><button type="button" id="closeCategoryEditor" class="ghost">Закрыть</button></div>${templateToolsHtml('edit',locked)}${categoryFormHtml(c,'editCatForm',locked,locked?'Сохранить название':'Сохранить изменения')}</div>`;
 }
+function categoryCompletionPayload(category) {
+  const unfinished = adminState.matches.filter(match => match.status !== 'finished' && match.status !== 'cancelled');
+  const message = unfinished.length
+    ? `Досрочно завершить «${category.name}»? ${unfinished.length} незавершённых поединков будут отменены и не попадут в итоговый зачёт. Результаты проведённых боёв сохранятся.`
+    : `Завершить категорию «${category.name}» и рассчитать итоговые результаты?`;
+  return confirm(message) ? {cancel_unfinished:unfinished.length > 0} : null;
+}
+
 function renderCategories(){
   const c=adminState.categories.find(x=>x.id===adminState.selectedCategoryId)||null;
   const locked=!!c&&(c.status==='completed'||selectedCategoryStarted(c));
@@ -60,7 +68,7 @@ function renderCategories(){
     const form=$('#editCatForm');bindCategoryFormatVisibility(form);bindTemplateTools('edit',form,c,locked);
     form.onsubmit=async e=>{e.preventDefault();const data=categoryFormData(form,c);const structuralChanged=data.format!==c.format||data.group_target_size!==c.group_target_size||data.group_qualifiers!==c.group_qualifiers||data.swiss_rounds!==c.swiss_rounds;if(!locked&&structuralChanged&&adminState.matches.length&&!confirm('Изменение структуры удалит ещё не начатую сетку/туры. Результатов боёв ещё нет, поэтому это безопасно. Продолжить?'))return;try{await api(`/api/categories/${c.id}`,{method:'PUT',body:JSON.stringify(data)});await refreshAdminData(false);await loadSelectedCategory();adminUiState.categoryEditingId=null;renderCategories();toast(locked?'Название категории сохранено':structuralChanged&&adminState.matches.length?'Настройки сохранены. Сформируйте сетку заново.':'Настройки категории сохранены')}catch(err){toast(err.message,true)}};
   }
-  if($('#completeCategory')) $('#completeCategory').onclick=async()=>{if(!confirm(`Завершить категорию «${c.name}»? Она исчезнет из активных и останется в архиве.`))return;try{const r=await api(`/api/categories/${c.id}/complete`,{method:'POST'});await refreshAdminData(false);adminState.selectedCategoryId=c.id;adminUiState.categoryEditingId=null;await loadSelectedCategory();renderCategories();if(r.export_error)toast(`Категория завершена, но экспорт не создан: ${r.export_error}`,true);else toast('Категория завершена. PDF и JSON подготовлены.')}catch(e){toast(e.message,true)}};
+  if($('#completeCategory')) $('#completeCategory').onclick=async()=>{const payload=categoryCompletionPayload(c);if(!payload)return;try{const r=await api(`/api/categories/${c.id}/complete`,{method:'POST',body:JSON.stringify(payload)});await refreshAdminData(false);adminState.selectedCategoryId=c.id;adminUiState.categoryEditingId=null;await loadSelectedCategory();renderCategories();if(r.export_error)toast(`Категория завершена, но экспорт не создан: ${r.export_error}`,true);else toast('Категория завершена. PDF и JSON подготовлены.')}catch(e){toast(e.message,true)}};
   if($('#reopenCategory')) $('#reopenCategory').onclick=async()=>{try{await api(`/api/categories/${c.id}/reopen`,{method:'POST'});await refreshAdminData(false);adminState.selectedCategoryId=c.id;adminUiState.categoryEditingId=null;await loadSelectedCategory();renderCategories();toast('Категория возвращена в активные')}catch(e){toast(e.message,true)}};
   $('#exportCategoryPdf').onclick=()=>downloadUrl(`/api/categories/${c.id}/export.pdf`);
   $('#exportCategoryJson').onclick=()=>downloadUrl(`/api/categories/${c.id}/export.json`);
@@ -99,7 +107,7 @@ function renderBracketTab(){
   const canNextSwiss=!!c&&c.format==='swiss'&&swissRounds.length&& !swissStaged && swissCurrentRows.every(m=>m.status==='finished');
   let buildControls='';
   if(c&&!archived){
-    if(c.format==='swiss'){if(!swissRounds.length)buildControls+=`<button id="generateBtn" class="primary">Сформировать тур 1</button>`;if(swissStaged)buildControls+=`<button id="startSwissBtn" class="primary">▶ Начать тур ${swissCurrent}</button>`;if(canNextSwiss)buildControls+=`<button id="swissBtn">Сформировать тур ${swissCurrent+1}</button>`;}
+    if(c.format==='swiss'){if(!swissRounds.length)buildControls+=`<button id="generateBtn" class="primary">Сформировать тур 1</button>`;if(swissStaged)buildControls+=`<button id="startSwissBtn" class="primary">▶ Начать тур ${swissCurrent}</button>`;if(canNextSwiss&&swissCurrent<c.swiss_rounds)buildControls+=`<button id="swissBtn">Сформировать тур ${swissCurrent+1}</button>`;if(swissRounds.length&&c.swiss_rounds<50)buildControls+=`<button id="swissAddRoundBtn">+ Добавить Swiss-тур (всего ${c.swiss_rounds})</button>`;}
     else {buildControls+=`<button id="generateBtn" class="primary">${adminState.matches.length?'Перегенерировать':'Сформировать'}</button>`;}
     if(c.format==='groups'&&groupStaged)buildControls+=`<button id="startGroupsBtn" class="primary">▶ Начать групповой этап</button>`;
     if(c.format==='groups'&&groupDone&&!adminState.matches.some(m=>m.stage==='playoff'))buildControls+=`<button id="playoffBtn" class="primary">Создать плей-офф</button>`;
@@ -113,8 +121,9 @@ function renderBracketTab(){
     if($('#startGroupsBtn'))$('#startGroupsBtn').onclick=async()=>{if(!confirm('Начать групповой этап? После этого состав групп будет зафиксирован.'))return;try{await api(`/api/categories/${c.id}/groups-start`,{method:'POST'});await refreshAdminData(true);renderBracketTab();toast('Групповой этап начат')}catch(e){toast(e.message,true)}};
     if($('#startSwissBtn'))$('#startSwissBtn').onclick=async()=>{if(!confirm(`Начать Swiss-тур ${swissCurrent}? После этого пары тура будут зафиксированы.`))return;try{await api(`/api/categories/${c.id}/swiss-start`,{method:'POST'});await refreshAdminData(true);renderBracketTab();toast(`Тур ${swissCurrent} начат`)}catch(e){toast(e.message,true)}};
     if($('#playoffBtn')) $('#playoffBtn').onclick=async()=>{try{await api(`/api/categories/${c.id}/group-playoff`,{method:'POST'});await refreshAdminData(true);renderBracketTab()}catch(e){toast(e.message,true)}};
+    if($('#swissAddRoundBtn'))$('#swissAddRoundBtn').onclick=async()=>{if(!confirm(`Добавить ещё один Swiss-тур? Всего будет ${c.swiss_rounds+1}. Уже сыгранные туры сохранятся.`))return;try{await api(`/api/categories/${c.id}/swiss-add-round`,{method:'POST'});await refreshAdminData(true);renderBracketTab();toast('Дополнительный Swiss-тур добавлен')}catch(e){toast(e.message,true)}};
     if($('#swissBtn')) $('#swissBtn').onclick=async()=>{try{await api(`/api/categories/${c.id}/swiss-next`,{method:'POST'});await refreshAdminData(true);renderBracketTab()}catch(e){toast(e.message,true)}};
-    if($('#completeCategoryQuick')) $('#completeCategoryQuick').onclick=async()=>{if(!confirm(`Завершить категорию «${c.name}»?`))return;try{const r=await api(`/api/categories/${c.id}/complete`,{method:'POST'});await refreshAdminData(true);adminState.selectedCategoryId=c.id;await loadSelectedCategory();renderBracketTab();if(r.export_error)toast(`Категория завершена, но экспорт не создан: ${r.export_error}`,true);else toast('Категория завершена. PDF и JSON подготовлены.')}catch(e){toast(e.message,true)}};
+    if($('#completeCategoryQuick')) $('#completeCategoryQuick').onclick=async()=>{const payload=categoryCompletionPayload(c);if(!payload)return;try{const r=await api(`/api/categories/${c.id}/complete`,{method:'POST',body:JSON.stringify(payload)});await refreshAdminData(true);adminState.selectedCategoryId=c.id;await loadSelectedCategory();renderBracketTab();if(r.export_error)toast(`Категория завершена, но экспорт не создан: ${r.export_error}`,true);else toast('Категория завершена. PDF и JSON подготовлены.')}catch(e){toast(e.message,true)}};
   }
   $('#standingsBtn').onclick=()=>showStandings(c);
   $('#bracketExportPdf').onclick=()=>downloadUrl(`/api/categories/${c.id}/export.pdf`);

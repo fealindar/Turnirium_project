@@ -55,7 +55,10 @@ def test_warning_penalty_and_forfeit():
         add_warning(db, m, "red")
         m = db.get(Match, m.id); assert m.red_warnings == 2 and m.red_score == -2
         add_warning(db, m, "red")
-        m = db.get(Match, m.id); assert m.status == "finished" and m.winner_cp_id == blue_id
+        m = db.get(Match, m.id)
+        assert m.status == "ready" and m.winner_cp_id is None
+        finish_match(db, m, blue_id, "WARNING_FORFEIT")
+        assert m.status == "finished" and m.winner_cp_id == blue_id
 
 
 def test_groups_create_playoff_after_all_group_matches_finished():
@@ -84,7 +87,7 @@ def test_swiss_next_round_avoids_repeats_when_possible():
         assert not (pairs1 & pairs2)
 
 
-def test_group_draw_separates_same_club_when_possible_and_auto_assigns_single_area():
+def test_group_draw_separates_clubs_without_auto_assigning_single_area():
     reset_db()
     with SessionLocal() as db:
         t = Tournament(name="Spread")
@@ -112,8 +115,8 @@ def test_group_draw_separates_same_club_when_possible_and_auto_assigns_single_ar
         assert matches and all(m.status == "staged" and m.area_id is None for m in matches)
         start_group_stage(db, c)
         matches = db.scalars(select(Match).where(Match.category_id == c.id)).all()
-        assert all(m.area_id == area.id for m in matches)
-        assert db.get(Area, area.id).current_match_id is not None
+        assert all(m.area_id is None and m.queue_order == 0 for m in matches)
+        assert db.get(Area, area.id).current_match_id is None
 
 
 def test_manual_group_move_rebuilds_unstarted_group_matches():
@@ -230,8 +233,8 @@ def test_knockout_creates_third_place_and_fills_semifinal_losers():
         assert {bronze.red_cp_id, bronze.blue_cp_id} == set(losers)
         assert bronze.status == "ready"
         assert final is not None and bronze.match_no < final.match_no
-        assert bronze.area_id == final.area_id
-        assert bronze.queue_order < final.queue_order
+        assert bronze.area_id is None and final.area_id is None
+        assert bronze.queue_order == final.queue_order == 0
 
 
 def test_group_composition_remains_editable_after_stage_start_until_fighter_has_bout():
@@ -466,6 +469,8 @@ def test_single_area_generator_avoids_back_to_back_participant_when_possible():
             db.add(p); db.flush(); add_category_participant(db, c.id, p.id)
         db.commit()
         generate_groups(db, c); start_group_stage(db, c)
+        from app.engine import assign_ready_category_unit
+        assert assign_ready_category_unit(db, t.id, c.id, area.id) == 6
         queued = db.scalars(select(Match).where(Match.area_id == area.id, Match.status.in_(["ready", "pending"])).order_by(Match.queue_order, Match.id)).all()
         assert len(queued) == 6
         from app.engine import queue_repeat_warnings
@@ -487,6 +492,8 @@ def test_explicit_queue_optimizer_respects_configured_gap_best_effort():
             p = Participant(tournament_id=t.id, last_name=f"R{i+1}")
             db.add(p); db.flush(); add_category_participant(db, c.id, p.id)
         db.commit(); generate_groups(db, c); start_group_stage(db, c)
+        from app.engine import assign_ready_category_unit
+        assert assign_ready_category_unit(db, t.id, c.id, area.id) == 6
         rows = db.scalars(select(Match).where(Match.area_id == area.id).order_by(Match.queue_order, Match.id)).all()
         # Сначала намеренно формируем плохой порядок. Генератор групп теперь
         # учитывает отдых, поэтому строим цепочку с максимально частым повтором бойца.

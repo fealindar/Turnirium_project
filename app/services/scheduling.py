@@ -85,56 +85,75 @@ def optimize_area_queue(db: Session, area: Area) -> int:
         recent.append(pids)
     return warnings
 
-def auto_assign_ready_matches(db: Session, tournament_id: int) -> None:
-    """Автоматически назначает бои, если в турнире включена одна площадка.
+def optimize_tournament_queues(db: Session, tournament_id: int) -> dict[str, object]:
+    """Балансирует все не начатые назначенные бои по включённым площадкам.
 
-    Новые бои упорядочиваются с максимально возможным отдыхом, а уже заданный
-    организатором ручной порядок остаётся неизменным.
+    Не затрагивает нераспределённые, завершённые, отменённые и текущие бои,
+    а также очереди отключённых площадок. Функция работает независимо от
+    настройки разведения повторных выходов.
     """
-    areas = db.scalars(select(Area).where(Area.tournament_id == tournament_id, Area.enabled.is_(True)).order_by(Area.id)).all()
-    if len(areas) != 1:
-        return
-    area = areas[0]
+    from .schedule_balancer import plan_balanced_queues, queue_conflicts
+
     tournament = db.get(Tournament, tournament_id)
-    max_order = db.scalar(select(func.max(Match.queue_order)).where(Match.area_id == area.id)) or 0
-    unassigned = db.scalars(
-        select(Match).join(Category).join(Tournament, Category.tournament_id == Tournament.id).where(
-            Category.tournament_id == tournament_id,
-            Category.status != "completed",
-            Tournament.status != "completed",
-            Match.area_id.is_(None),
-            Match.status.in_(["ready", "pending"]),
-        ).order_by(Match.category_id, Match.match_no)
-    ).all()
+    if not tournament or tournament.status == "completed":
+        raise ValueError("Турнир завершён")
+    areas = db.scalars(select(Area).where(
+        Area.tournament_id == tournament_id, Area.enabled.is_(True)
+    ).order_by(Area.id)).all()
+    if not areas:
+        return {"unavoidable_conflicts": 0, "cross_area_conflicts": 0, "moved_matches": 0, "area_loads": {}}
 
-    ordered_new = list(unassigned)
-    if unassigned and tournament and tournament.avoid_consecutive_matches:
-        gap = max(1, min(int(tournament.preferred_match_gap or 1), 10))
-        existing = db.scalars(
-            select(Match).where(
-                Match.area_id == area.id,
-                Match.status.in_(["ready", "pending", "in_progress"]),
-            ).order_by(Match.queue_order, Match.id)
-        ).all()
-        recent = [_match_participant_ids(m) for m in existing[-gap:]]
-        ordered_new = _best_effort_match_order(unassigned, recent, gap)
+    fixed: dict[int, list[Match]] = {area.id: [] for area in areas}
+    movable: list[Match] = []
+    old_areas: dict[int, int] = {}
+    histories: dict[int, list[set[int]]] = {}
+    gap = max(1, min(int(tournament.preferred_match_gap or 1), 10))
+    for area in areas:
+        queue = db.scalars(select(Match).join(Category).where(
+            Match.area_id == area.id, Category.status != "completed",
+            Match.status.in_(["ready", "pending", "in_progress"]),
+        ).order_by(Match.queue_order, Match.id)).all()
+        for match in queue:
+            if match.status == "in_progress" or match.id == area.current_match_id:
+                fixed[area.id].append(match)
+            else:
+                movable.append(match)
+                old_areas[match.id] = area.id
+        recent = db.scalars(select(Match).where(
+            Match.area_id == area.id, Match.status == "finished"
+        ).order_by(Match.finished_at.desc(), Match.id.desc()).limit(gap)).all()
+        histories[area.id] = [_match_participant_ids(m) for m in reversed(recent)]
 
-    for m in ordered_new:
-        max_order += 1
-        m.area_id = area.id
-        m.queue_order = max_order
+    # Стабильный порядок: сначала уже более ранние круги, затем исходная очередь.
+    movable.sort(key=lambda m: (m.round_no, m.queue_order, m.category_id, m.match_no, m.id))
+    planned = plan_balanced_queues(
+        fixed, movable, gap=gap, avoid_consecutive=tournament.avoid_consecutive_matches,
+        recent_by_area=histories,
+    )
+    moved = 0
+    for area in areas:
+        for order, match in enumerate(planned[area.id], 1):
+            if match.id in old_areas and old_areas[match.id] != area.id:
+                moved += 1
+            match.area_id = area.id
+            match.queue_order = order
     db.flush()
-    if area.current_match_id is None:
-        first = db.scalar(
-            select(Match).join(Category).join(Tournament, Category.tournament_id == Tournament.id).where(
-                Match.area_id == area.id,
-                Category.status != "completed",
-                Tournament.status != "completed",
-                Match.status.in_(["ready", "pending"]),
-            ).order_by(Match.queue_order, Match.id)
-        )
-        if first:
-            area.current_match_id = first.id
+    local, cross = queue_conflicts(planned, gap)
+    return {
+        "unavoidable_conflicts": local if tournament.avoid_consecutive_matches else 0,
+        "cross_area_conflicts": cross,
+        "moved_matches": moved,
+        "area_loads": {area.id: len(planned[area.id]) for area in areas},
+    }
+
+
+def auto_assign_ready_matches(db: Session, tournament_id: int) -> None:
+    """Совместимость вызовов: автоматического назначения больше нет.
+
+    Независимо от числа площадок решение о распределении принимает организатор.
+    """
+    return None
+
 
 def cross_area_repeat_warnings(
     queues: dict[int, list[Match]],
@@ -185,8 +204,8 @@ def assign_ready_category_unit(
         raise ValueError("Площадка не относится к выбранному турниру")
     if not area.enabled:
         raise ValueError("Нельзя назначить бои на отключенную площадку")
-    if not category or category.tournament_id != tournament_id:
-        raise ValueError("Категория не относится к выбранному турниру")
+    if not category or category.tournament_id != tournament_id or category.status == "completed":
+        raise ValueError("Категория не относится к активному турниру")
 
     filters = [
         Match.category_id == category_id,

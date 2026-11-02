@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from ..db import SessionLocal, current_db_generation, get_db
+from ..services.match_penalties import toggle_technical_loss
 from ..engine import (
     add_warning,
     apply_score,
@@ -28,8 +29,8 @@ router = APIRouter()
 def _ensure_timer_mutable(match: Match) -> None:
     """Запрещает менять таймер завершённого поединка."""
 
-    if match.status == "finished":
-        raise HTTPException(409, "Поединок уже завершен")
+    if match.status in {"finished", "cancelled"} or match.category.status == "completed":
+        raise HTTPException(409, "Поединок завершён или категория закрыта")
 
 
 def _ensure_match_can_start(match: Match) -> None:
@@ -135,6 +136,23 @@ async def warning(
         },
     )
     return {"match": match_dict(match), "outcome": outcome}
+
+
+@router.post("/matches/{match_id}/technical-loss")
+async def mark_technical_loss(
+    match_id: int,
+    data: SideIn,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Сохраняет предварительную отметку; результат определит отдельное завершение."""
+    match = _get_or_404(db, Match, match_id, "Поединок")
+    try:
+        toggle_technical_loss(db, match, data.side)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    await _broadcast_match_change(request, match, "match_changed")
+    return match_dict(match)
 
 
 @router.post("/matches/{match_id}/undo")

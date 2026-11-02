@@ -84,6 +84,7 @@ async function initAdmin() {
     const tab=$('.admin-nav button.active')?.dataset.tab;
     if(tab==='network'){try{renderNetwork()}catch{};return;}
     if(!adminState.tournamentId || !['overview','bracket','schedule','screens'].includes(tab))return;
+    if(tab==='schedule' && document.querySelector('body > .quick-multi-popup')) return;
     try{await refreshAdminData(true);renderAdminTab(tab)}catch{}
   },10000);
 }

@@ -68,6 +68,8 @@ def effective_remaining_ms(match: Match) -> int:
     return max(0, match.remaining_ms - elapsed)
 
 def match_dict(match: Match) -> dict[str, Any]:
+    from .match_penalties import pending_penalties
+
     remaining = effective_remaining_ms(match)
     return {
         "id": match.id,
@@ -83,6 +85,7 @@ def match_dict(match: Match) -> dict[str, Any]:
         "blue": cp_label(match.blue_cp),
         "red_score": match.red_score,
         "blue_score": match.blue_score,
+        "pending_penalties": pending_penalties(match),
         "red_warnings": match.red_warnings,
         "blue_warnings": match.blue_warnings,
         "winner_cp_id": match.winner_cp_id,

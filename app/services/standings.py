@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..models import Category, CategoryParticipant, Match
+from .match_results import DOUBLE_LOSS_REASONS
 
 def _points_standings(
     db: Session,
@@ -15,6 +16,7 @@ def _points_standings(
     group_name: str | None = None,
     *,
     stage: str | None = None,
+    include_byes: bool = True,
 ) -> list[dict[str, Any]]:
     """Строит таблицу форматов, где главным критерием служат турнирные очки."""
     category = db.get(Category, category_id)
@@ -37,6 +39,8 @@ def _points_standings(
     elif group_name is not None:
         q = q.where(Match.stage == "group", Match.group_name == group_name)
     for m in db.scalars(q).all():
+        if not include_byes and m.result_reason in {"BYE", "NO_CONTEST"}:
+            continue
         if group_name is not None and m.group_name != group_name:
             continue
         is_draw = m.result_reason == "DRAW" and m.red_cp_id is not None and m.blue_cp_id is not None
@@ -56,7 +60,7 @@ def _points_standings(
             elif m.winner_cp_id == cp_id:
                 st["wins"] += 1
                 st["points"] += win_points
-            elif m.winner_cp_id:
+            elif m.winner_cp_id or m.result_reason in DOUBLE_LOSS_REASONS:
                 st["losses"] += 1
 
     rows = []
@@ -108,6 +112,11 @@ def _elimination_reason_rank(reason: str) -> int:
         "TECHNICAL_LOSS": 2,
         "WITHDRAWAL": 3,
         "DISQUALIFICATION": 4,
+        "DOUBLE_FORFEIT": 2,
+        "DOUBLE_TECHNICAL_LOSS": 2,
+        "DOUBLE_WARNING_FORFEIT": 1,
+        "DOUBLE_DISQUALIFICATION": 4,
+        "DOUBLE_WITHDRAWAL": 3,
     }.get(reason, 1)
 
 def _oriented_score(match: Match, cp_id: int) -> tuple[int, int]:
@@ -141,7 +150,7 @@ def _elimination_performance(
             stat["against"] += conceded
             if match.winner_cp_id == cp_id:
                 stat["wins"] += 1
-            elif match.winner_cp_id is not None:
+            elif match.winner_cp_id is not None or match.result_reason in DOUBLE_LOSS_REASONS:
                 stat["losses"] += 1
     return perf
 
@@ -219,7 +228,10 @@ def _build_elimination_row(
     losses = [
         match
         for match in cp_matches
-        if match.status == "finished" and match.winner_cp_id and match.winner_cp_id != cp_id
+        if match.status == "finished" and (
+            (match.winner_cp_id and match.winner_cp_id != cp_id)
+            or (match.result_reason in DOUBLE_LOSS_REASONS and cp_id in (match.red_cp_id, match.blue_cp_id))
+        )
     ]
     elimination_match = max(losses, key=lambda match: (match.round_no, match.match_no)) if losses else None
 
@@ -348,6 +360,12 @@ def standings(
         return []
     if group_name is not None:
         return _points_standings(db, category_id, group_name, stage="group")
+    if category.status == "completed" and db.scalar(select(Match.id).where(
+        Match.category_id == category_id, Match.status == "cancelled"
+    ).limit(1)):
+        # При досрочном завершении таблица учитывает исключительно проведённые
+        # поединки, а не предполагаемое продвижение по незавершённой сетке.
+        return _points_standings(db, category_id, include_byes=False)
     if swiss_only or category.format == "swiss":
         return _points_standings(db, category_id, stage="swiss")
     if round_robin_only or category.format == "round_robin":

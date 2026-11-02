@@ -112,12 +112,19 @@ def _maybe_activate_or_bye(db: Session, match: Match) -> None:
         propagate_winner(db, match)
         _propagate_loser_to_third_place(db, match)
     elif not match.red_cp_id and not match.blue_cp_id:
-        match.status = "blocked"
+        if sources and all_sources_done:
+            match.status = "finished"
+            match.result_reason = "NO_CONTEST"
+            match.finished_at = now_utc()
+            db.flush()
+            propagate_winner(db, match)
+        else:
+            match.status = "blocked"
     else:
         match.status = "blocked"
 
 def propagate_winner(db: Session, match: Match) -> None:
-    if not match.next_match_id or not match.winner_cp_id:
+    if not match.next_match_id or match.status != "finished":
         return
     nxt = db.get(Match, match.next_match_id)
     if not nxt:
@@ -182,7 +189,9 @@ def _propagate_loser_to_third_place(db: Session, match: Match) -> None:
             bronze.result_reason = "BYE"
             bronze.finished_at = now_utc()
         else:
-            bronze.status = "blocked"
+            bronze.status = "finished"
+            bronze.result_reason = "NO_CONTEST"
+            bronze.finished_at = now_utc()
     db.flush()
 
 def generate_knockout(

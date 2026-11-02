@@ -51,7 +51,9 @@ function quickAssignButtons(unit, groupName='') {
   const available = groupName
     ? unit.groups.find(group => group.name === groupName)?.ready_unassigned || 0
     : unit.ready_unassigned || 0;
-  return (schedule.areas || []).map(column => `<button class="small quick-area-btn" data-quick-category="${unit.category_id}" data-quick-group="${esc(groupName)}" data-quick-area="${column.area.id}" ${available && column.area.enabled !== false ? '' : 'disabled'} title="Назначить ${groupName ? `группу ${esc(groupName)} категории ${esc(unit.name)}` : `категорию ${esc(unit.name)}`} на ${esc(column.area.name)}">→ ${esc(column.area.name)}</button>`).join('');
+  const enabled = (schedule.areas || []).filter(column => column.area.enabled !== false);
+  const multi = `<div class="quick-multi-wrap"><button type="button" class="small quick-multi-trigger" data-quick-multi="${unit.category_id}" data-quick-group="${esc(groupName)}" ${available && enabled.length ? '' : 'disabled'}>Распределить по площадкам ▾</button><div class="quick-multi-popup" hidden><b>Выберите площадки</b>${enabled.map(column => `<label><input type="checkbox" value="${column.area.id}"> ${esc(column.area.name)}</label>`).join('')}<button type="button" class="primary small" data-quick-multi-confirm>Подтвердить распределение</button></div></div>`;
+  return multi;
 }
 
 function quickAssignmentHtml(schedule) {
@@ -92,13 +94,13 @@ function scheduleChip(match, currentId=null) {
 }
 
 function renderSchedule() {
+  closeQuickMultiPopup();
   const schedule = adminState.schedule || {areas:[],unassigned:[],category_units:[],settings:{avoid_consecutive_matches:true,preferred_match_gap:1}};
-  const auto = adminState.areas.length === 1;
   const cfg = schedule.settings || {avoid_consecutive_matches:true,preferred_match_gap:1};
   const localWarnings = (schedule.areas || []).reduce((sum, column) => sum + column.matches.filter(m => m.repeat_warning).length, 0);
   const crossWarnings = (schedule.areas || []).reduce((sum, column) => sum + column.matches.filter(m => m.cross_area_warning).length, 0);
-  $('#adminContent').innerHTML = `<div class="section-head schedule-page-head"><div><h2>Расписание площадок</h2><p>Назначайте категории, группы или отдельные бои по площадкам.</p></div><div class="row schedule-main-actions">${auto ? '<span class="pill live-pill">Автоназначение включено</span>' : ''}<button id="resetScheduleAssignments" class="danger ghost" ${schedule.areas.length || schedule.unassigned.length ? '' : 'disabled'}>Сбросить распределение</button><button id="addArea">+ Добавить площадку</button></div></div>
-    <div class="card schedule-settings"><div><b>Порядок боёв</b><small>Интервал между повторными выходами одного бойца.</small></div><label class="check-row"><input id="avoidConsecutive" type="checkbox" ${cfg.avoid_consecutive_matches ? 'checked' : ''}> Разносить повторные выходы</label><label class="field compact-field"><span>Других боёв между выходами</span><input id="preferredGap" type="number" min="1" max="10" value="${cfg.preferred_match_gap || 1}" ${cfg.avoid_consecutive_matches ? '' : 'disabled'}></label><button id="saveScheduleSettings">Сохранить</button><button id="optimizeSchedule" ${cfg.avoid_consecutive_matches ? '' : 'disabled'}>Оптимизировать очереди</button><div class="schedule-warning-summary">${localWarnings ? `<span class="schedule-warning">⚠ Внутри площадок: ${localWarnings}</span>` : '<span class="schedule-ok">Внутри площадок интервалы соблюдены</span>'}${crossWarnings ? `<span class="schedule-danger">⚠ Между площадками: ${crossWarnings}</span>` : '<span class="schedule-ok">Межплощадочных конфликтов ±1 нет</span>'}</div></div>
+  $('#adminContent').innerHTML = `<div class="section-head schedule-page-head"><div><h2>Расписание площадок</h2><p>Назначайте категории, группы или отдельные бои по площадкам.</p></div><div class="row schedule-main-actions"><button id="resetScheduleAssignments" class="danger ghost" ${schedule.areas.length || schedule.unassigned.length ? '' : 'disabled'}>Сбросить распределение</button><button id="addArea">+ Добавить площадку</button></div></div>
+    <div class="card schedule-settings"><div><b>Порядок боёв</b><small>Интервал между повторными выходами одного бойца.</small></div><label class="check-row"><input id="avoidConsecutive" type="checkbox" ${cfg.avoid_consecutive_matches ? 'checked' : ''}> Разносить повторные выходы</label><label class="field compact-field"><span>Других боёв между выходами</span><input id="preferredGap" type="number" min="1" max="10" value="${cfg.preferred_match_gap || 1}" ${cfg.avoid_consecutive_matches ? '' : 'disabled'}></label><button id="saveScheduleSettings">Сохранить</button><button id="optimizeSchedule">Оптимизировать очереди</button><div class="schedule-warning-summary">${localWarnings ? `<span class="schedule-warning">⚠ Внутри площадок: ${localWarnings}</span>` : '<span class="schedule-ok">Внутри площадок интервалы соблюдены</span>'}${crossWarnings ? `<span class="schedule-danger">⚠ Между площадками: ${crossWarnings}</span>` : '<span class="schedule-ok">Межплощадочных конфликтов ±1 нет</span>'}</div></div>
     <section class="card quick-assignment"><div class="section-head compact"><div><h2>Быстрое распределение</h2></div></div>${quickAssignmentHtml(schedule)}</section>
     <div class="schedule-layout"><section class="schedule-unassigned schedule-drop-zone" data-area=""><div class="schedule-head"><div><h3>Не распределены</h3><small>Разделены по категориям и этапам</small></div><span>${schedule.unassigned.length}</span></div>${scheduleUnassignedHtml(schedule)}</section><div class="schedule-area-scroll"><div class="schedule-area-grid">${schedule.areas.map(column => `<section class="schedule-col schedule-drop-zone ${column.area.enabled === false ? 'disabled' : ''}" data-area="${column.area.id}" data-enabled="${column.area.enabled === false ? '0' : '1'}"><div class="schedule-head"><div><h3>${esc(column.area.name)}</h3><small>${column.area.enabled === false ? 'Площадка отключена' : 'Очередь площадки'}</small></div><div class="schedule-head-actions"><span>${column.matches.length}</span><button class="area-reset-btn" type="button" data-reset-area="${column.area.id}" data-area-name="${esc(column.area.name)}" ${column.matches.length?'':'disabled'} title="Снять все бои с площадки">Сбросить</button><button class="area-delete-btn" type="button" data-delete-area="${column.area.id}" data-area-name="${esc(column.area.name)}" title="Удалить площадку" aria-label="Удалить площадку ${esc(column.area.name)}">×</button></div></div><div class="schedule-column-body">${column.matches.map(match => scheduleChip(match, column.area.current_match_id)).join('') || '<div class="schedule-empty">Очередь пуста</div>'}</div></section>`).join('') || '<div class="schedule-no-areas">Площадок нет.</div>'}</div></div></div>`;
   bindScheduleControls();
@@ -113,7 +115,6 @@ function bindScheduleControls() {
   });
   $('#avoidConsecutive').onchange = event => {
     $('#preferredGap').disabled = !event.target.checked;
-    $('#optimizeSchedule').disabled = !event.target.checked;
   };
   $('#saveScheduleSettings').onclick = async () => {
     try {
@@ -125,7 +126,8 @@ function bindScheduleControls() {
     try {
       const result = await api(`/api/tournaments/${adminState.tournamentId}/schedule-optimize`, {method:'POST'});
       await refreshAdminData(true); renderSchedule();
-      toast(result.unavoidable_conflicts ? `Очереди оптимизированы. Неизбежных близких выходов: ${result.unavoidable_conflicts}` : 'Очереди оптимизированы');
+      const loads=Object.values(result.area_loads || {});
+      toast(`Очереди оптимизированы. Перенесено боёв: ${result.moved_matches}. Загрузка площадок: ${loads.join(' / ') || 'нет боёв'}. Межплощадочных конфликтов: ${result.cross_area_conflicts}.`);
     } catch (error) { toast(error.message, true); }
   };
   $('#addArea').onclick = async () => {
@@ -167,19 +169,71 @@ function bindScheduleControls() {
     try { await api(`/api/areas/${button.dataset.area}/select/${button.dataset.selectMatch}`, {method:'POST'}); await refreshAdminData(true); renderSchedule(); }
     catch (error) { toast(error.message, true); }
   });
-  $$('[data-quick-category]').forEach(button => button.onclick = () => quickAssignScheduleUnit(button));
+  bindQuickMultiAssignment();
   bindScheduleDnD();
 }
 
-async function quickAssignScheduleUnit(button) {
-  const categoryId = Number(button.dataset.quickCategory);
-  const areaId = Number(button.dataset.quickArea);
-  const groupName = button.dataset.quickGroup || '';
-  try {
-    const result = await api(`/api/tournaments/${adminState.tournamentId}/schedule-assign-unit`, {method:'POST', body:JSON.stringify({category_id:categoryId, area_id:areaId, group_name:groupName})});
-    await refreshAdminData(true); renderSchedule();
-    toast(`Назначено боёв: ${result.assigned}`);
-  } catch (error) { toast(error.message, true); }
+// Отдельный слой в document.body не обрезается прокручиваемыми карточками.
+let openScheduleMulti = null;
+function closeQuickMultiPopup() {
+  if (!openScheduleMulti) return;
+  const {popup, trigger, outside, resize, escape} = openScheduleMulti;
+  document.removeEventListener('pointerdown', outside, true);
+  window.removeEventListener('resize', resize);
+  document.removeEventListener('keydown', escape, true);
+  trigger.setAttribute('aria-expanded', 'false');
+  popup.hidden = true;
+  popup.style.left = '';
+  popup.style.top = '';
+  trigger.parentElement.appendChild(popup);
+  openScheduleMulti = null;
+}
+
+function bindQuickMultiAssignment() {
+  $$('.quick-multi-trigger').forEach(trigger => {
+    trigger.setAttribute('aria-haspopup', 'true');
+    trigger.setAttribute('aria-expanded', 'false');
+    trigger.onclick = () => {
+      if (openScheduleMulti?.trigger === trigger) { closeQuickMultiPopup(); return; }
+      closeQuickMultiPopup();
+      const popup = trigger.parentElement.querySelector('.quick-multi-popup');
+      if (!popup) return;
+      document.body.appendChild(popup);
+      popup.hidden = false;
+      const rect = trigger.getBoundingClientRect();
+      // Крайний правый/нижний край viewport: открываем в пределах экрана.
+      const width = popup.offsetWidth;
+      const height = popup.offsetHeight;
+      popup.style.left = `${Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))}px`;
+      popup.style.top = `${rect.bottom + 6 + height <= window.innerHeight ? rect.bottom + 6 : Math.max(8, rect.top - height - 6)}px`;
+      trigger.setAttribute('aria-expanded', 'true');
+      const outside = e => {
+        if (!popup.contains(e.target) && !trigger.contains(e.target)) closeQuickMultiPopup();
+      };
+      const resize = () => closeQuickMultiPopup();
+      const escape = e => {
+        if (e.key === 'Escape') { closeQuickMultiPopup(); trigger.focus(); }
+      };
+      openScheduleMulti = {popup, trigger, outside, resize, escape};
+      document.addEventListener('pointerdown', outside, true);
+      window.addEventListener('resize', resize);
+      document.addEventListener('keydown', escape, true);
+      popup.querySelector('[data-quick-multi-confirm]').onclick = async event => {
+        const button = event.currentTarget;
+        const areaIds = $$('input:checked', popup).map(box => Number(box.value));
+        if (!areaIds.length) { toast('Выберите хотя бы одну площадку', true); return; }
+        button.disabled = true;
+        try {
+          const result = await api(`/api/tournaments/${adminState.tournamentId}/schedule-assign-multi`, {
+            method:'POST', body:JSON.stringify({category_id:Number(trigger.dataset.quickMulti), group_name:trigger.dataset.quickGroup || '', area_ids:areaIds})
+          });
+          closeQuickMultiPopup();
+          await refreshAdminData(true); renderSchedule();
+          toast(`Назначено боёв: ${result.assigned} на ${Object.keys(result.areas).length} площадках`);
+        } catch(error) { button.disabled = false; toast(error.message, true); }
+      };
+    };
+  });
 }
 
 function clearScheduleDropMarkers() {
