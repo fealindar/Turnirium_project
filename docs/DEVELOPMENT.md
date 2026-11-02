@@ -46,7 +46,7 @@ for f in app/static/*.js; do node --check "$f"; done
 
 Версия приложения хранится в `app/version.py`. Для исправлений без изменения формата данных увеличивается patch-номер.
 
-Windows-сборка берёт версию из этого файла автоматически. `tools/generate_version_info.py` формирует `version_info.txt`, который PyInstaller встраивает в PE VERSIONINFO. Имя артефакта также выводится из этой версии: при `APP_VERSION = "1.2.0"` используются `Turnirium_v1.2.0.exe` и `Turnirium_v1.2.0.zip`.
+Windows-сборка берёт версию из этого файла автоматически. `tools/generate_version_info.py` формирует `version_info.txt`, который PyInstaller встраивает в PE VERSIONINFO. Имя артефакта также выводится из этой версии: при `APP_VERSION = "1.2.1"` используются `Turnirium_v1.2.1.exe` и `Turnirium_v1.2.1.zip`.
 
 `build_windows.bat` всегда создаёт два релиза:
 

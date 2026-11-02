@@ -6,9 +6,10 @@ import math
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from ..models import Category, CategoryParticipant, Match
-from .brackets import _create_third_place_match, _maybe_activate_or_bye, _spread_knockout_slots, generate_knockout, next_power_of_two
+from ..models import Area, Category, CategoryParticipant, Match, MatchEvent
+from .brackets import _create_third_place_match, _maybe_activate_or_bye, generate_knockout
 from .common import audit
+from .group_playoff_seeding import seed_group_playoff_slots
 from .scheduling import auto_assign_ready_matches
 from .standings import standings
 
@@ -20,28 +21,30 @@ def generate_group_playoff(db: Session, category: Category) -> list[Match]:
     if existing:
         raise ValueError("Плей-офф уже создан")
     group_names = [x for x in db.scalars(select(CategoryParticipant.group_name).where(CategoryParticipant.category_id == category.id).distinct()).all() if x]
-    qualifiers: list[CategoryParticipant] = []
     group_rows = {g: standings(db, category.id, g) for g in sorted(group_names)}
-    # Чередуем места разных групп, чтобы по возможности уменьшить число быстрых реваншей.
-    top_by_group: dict[str, list[int]] = {}
-    for g, rows in group_rows.items():
-        top_by_group[g] = [r["cp_id"] for r in rows if not r["disqualified"] and r.get("participant_status") != "withdrawn"][:category.group_qualifiers]
-    group_order = sorted(top_by_group)
-    for place in range(category.group_qualifiers):
-        ids = []
-        for idx, g in enumerate(group_order):
-            vals = top_by_group[g]
-            if place < len(vals):
-                ids.append(vals[place])
-        if place % 2 == 1:
-            ids.reverse()
-        qualifiers.extend([db.get(CategoryParticipant, cid) for cid in ids])
-    qualifiers = [q for q in qualifiers if q]
-    if len(qualifiers) < 2:
+    # Используем уже рассчитанные места в группах. Клубы и города влияли
+    # на создание групп, но не должны менять спортивный посев плей-офф.
+    top_by_group: dict[str, list[int | None]] = {}
+    for group, rows in group_rows.items():
+        # При исключении участника сохраняем его исходное место в таблице:
+        # второй номер группы не должен автоматически становиться первым сеяным.
+        ranked_ids: list[int | None] = []
+        selected = 0
+        for row in rows:
+            eligible = not row["disqualified"] and row.get("participant_status") != "withdrawn"
+            ranked_ids.append(row["cp_id"] if eligible else None)
+            if eligible:
+                selected += 1
+            if selected == category.group_qualifiers:
+                break
+        top_by_group[group] = ranked_ids
+    qualifiers_count = sum(cid is not None for ids in top_by_group.values() for cid in ids)
+    if qualifiers_count < 2:
         raise ValueError("Недостаточно участников для плей-офф")
+    slot_values = seed_group_playoff_slots(top_by_group)
 
     # Сохраняем групповые бои и добавляем отдельную сетку плей-офф.
-    slots = next_power_of_two(len(qualifiers))
+    slots = len(slot_values)
     rounds = int(math.log2(slots))
     by_round: dict[int, list[Match]] = {}
     match_no = (db.scalar(select(func.max(Match.match_no)).where(Match.category_id == category.id)) or 0) + 1
@@ -68,7 +71,6 @@ def generate_group_playoff(db: Session, category: Category) -> list[Match]:
     if rounds >= 2:
         _create_third_place_match(db, category, "playoff", by_round[rounds - 1], match_no, rounds)
         match_no += 1
-    slot_values = _spread_knockout_slots(qualifiers, slots)
     for idx, m in enumerate(by_round[1]):
         m.red_cp_id = slot_values[idx * 2]
         m.blue_cp_id = slot_values[idx * 2 + 1]
@@ -76,7 +78,7 @@ def generate_group_playoff(db: Session, category: Category) -> list[Match]:
     for m in by_round[1]:
         _maybe_activate_or_bye(db, m)
     auto_assign_ready_matches(db, category.tournament_id)
-    audit(db, category.tournament_id, "PLAYOFF_GENERATED", "category", category.id, payload={"qualifiers": len(qualifiers)})
+    audit(db, category.tournament_id, "PLAYOFF_GENERATED", "category", category.id, payload={"qualifiers": qualifiers_count, "seeding": "group_rank"})
     db.commit()
     return [m for rnd in by_round.values() for m in rnd]
 
@@ -105,7 +107,9 @@ def rebuild_bracket_stage_from_slots(db: Session, category: Category, stage: str
     if len(supplied) != len(set(supplied)) or set(supplied) != allowed:
         raise ValueError("Можно только переставлять уже вышедших в плей-офф участников")
     slots = len(current_first) * 2
-    normalized = list(slot_cp_ids[:slots]) + [None] * max(0, slots - len(slot_cp_ids))
+    if len(slot_cp_ids) > slots:
+        raise ValueError("Число слотов превышает размер сетки")
+    normalized = list(slot_cp_ids) + [None] * (slots - len(slot_cp_ids))
 
     old_ids = select(Match.id).where(Match.category_id == category.id, Match.stage == "playoff")
     for area in db.scalars(select(Area).where(Area.current_match_id.in_(old_ids))).all():
